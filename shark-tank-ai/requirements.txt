@@ -1,0 +1,22 @@
+# Shark Tank AI — requirements
+# Core runtime dependencies needed for the app to start successfully,
+# plus dev/test tooling.
+
+# --- UI ---
+streamlit>=1.37
+
+# --- Configuration ---
+pydantic>=2.7
+pydantic-settings>=2.4
+python-dotenv>=1.0
+
+# --- LLM provider (not yet wired to any agent logic) ---
+anthropic>=0.34
+httpx>=0.27
+
+# --- Testing / dev tooling ---
+pytest>=8.2
+pytest-mock>=3.14
+ruff>=0.5
+black>=24.4
+mypy>=1.10

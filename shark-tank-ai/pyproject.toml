@@ -1,0 +1,60 @@
+[project]
+name = "shark-tank-ai"
+version = "0.1.0"
+description = "An AI multi-agent Streamlit application where founders pitch to a panel of AI investor agents."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Shark Tank AI Team" }
+]
+
+dependencies = [
+    "streamlit>=1.37",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.4",
+    "python-dotenv>=1.0",
+    "anthropic>=0.34",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-mock>=3.14",
+    "ruff>=0.5",
+    "black>=24.4",
+    "mypy>=1.10",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = [
+    "agents",
+    "orchestrator",
+    "providers",
+    "memory",
+    "models",
+    "prompts",
+    "ui",
+    "config",
+    "utils",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
