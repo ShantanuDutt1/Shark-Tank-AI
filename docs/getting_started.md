@@ -32,6 +32,18 @@ docker compose up --build
 
 Then visit `http://localhost:8501`.
 
+Notes:
+
+- The project directory is bind-mounted to `/app` in the container, so
+  edits to your code are reflected immediately without rebuilding the
+  image.
+- Environment variables are loaded from `.env` if it exists; copy
+  `.env.example` to `.env` first if you want to set any (e.g. API
+  keys). The container starts fine either way.
+- Run in the background with `docker compose up -d --build`, view logs
+  with `docker compose logs -f`, and stop everything with
+  `docker compose down`.
+
 ## Running Tests
 
 ```bash

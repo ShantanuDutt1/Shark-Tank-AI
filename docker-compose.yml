@@ -1,0 +1,29 @@
+# Shark Tank AI — docker-compose
+#
+# `docker compose up` builds the image and starts the Streamlit app at
+# http://localhost:8501. The project directory is bind-mounted into the
+# container so code edits on the host are reflected immediately --
+# Streamlit's file watcher (enabled via the Dockerfile CMD) picks them
+# up automatically, no rebuild needed for Python/UI changes.
+#
+# Environment variables are loaded from `.env` if it exists (copy
+# `.env.example` to `.env` first). The file is optional: the app starts
+# successfully even if `.env` hasn't been created yet.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: shark-tank-ai:latest
+    container_name: shark-tank-ai-app
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app
+    restart: unless-stopped
