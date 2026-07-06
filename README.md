@@ -105,9 +105,23 @@ the console by default, with an optional rotating file handler
 
 ## Documentation
 
-See [docs/architecture.md](docs/architecture.md) for the intended
-system design and [docs/getting_started.md](docs/getting_started.md)
-for a more detailed setup walkthrough.
+See [docs/architecture.md](docs/architecture.md) for the system's
+architecture (the single source of truth as of Release 0.3.5) and
+[docs/getting_started.md](docs/getting_started.md) for a setup
+walkthrough. Additional engineering documentation:
+
+- [docs/folder_structure.md](docs/folder_structure.md) — purpose,
+  responsibility, and ownership of every project folder.
+- [docs/state_machines.md](docs/state_machines.md) — the User Session
+  and Agent Orchestration state machines.
+- [docs/event_catalog.md](docs/event_catalog.md) — every planned Event
+  Bus message.
+- [docs/agent_contract.md](docs/agent_contract.md) — the common
+  interface every agent must implement.
+- [docs/coding_standards.md](docs/coding_standards.md) — engineering
+  standards for this codebase.
+- [docs/release_log.md](docs/release_log.md) — what shipped in each
+  release.
 
 ## Roadmap
 

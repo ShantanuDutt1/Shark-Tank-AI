@@ -1,0 +1,181 @@
+# Agent Contract
+
+**Status: Partially implemented today.** `agents/base_agent.py`
+already defines a `BaseAgent` class with the shape described in
+*Lifecycle* and *Inputs/Outputs* below, and `agents/shark_agent.py`
+implements a placeholder `SharkAgent`. Everything else in this
+document — Skills, Tool Access, Memory Access, Message
+Publishing/Subscription, and structured Error Handling — is planned
+and must be added when a future release builds it out. This document
+is the contract every current and future agent (Shark Agents,
+Moderator, Verification Agent) must satisfy.
+
+## Responsibilities
+
+An agent is responsible for exactly one bounded task within a
+session: evaluating a proposal, asking a question, verifying a
+deliberation, and so on. An agent must not:
+
+- Decide when it runs — that is the Session Director's responsibility
+  (see `architecture.md`).
+- Talk to the frontend directly — an agent communicates only through
+  its outputs and, once implemented, published events.
+- Hold session-wide state — an agent receives what it needs as input
+  and returns a result; persistent state belongs in `memory/`.
+
+## Lifecycle
+
+Every agent's execution follows the Agent Orchestration State Machine
+defined in [`state_machines.md`](state_machines.md):
+
+```
+Waiting -> Task Assigned -> Running -> ... -> Completed | Failed
+```
+
+**Implemented today:** `BaseAgent.__init__(persona, provider)` accepts
+an optional `SharkPersona` and an optional `BaseProvider`. The
+abstract method `evaluate_pitch(pitch, context)` corresponds to the
+`Task Assigned -> Running -> Completed | Failed` portion of the
+lifecycle for a Shark Agent specifically.
+
+**Planned:** an explicit lifecycle state should be tracked per agent
+task instance (not just implied by whether a method call has
+returned), so the Session Director can observe an agent as `Running`
+or `Waiting for User` rather than only finding out via a blocking
+function return.
+
+## Inputs
+
+Every agent method that performs work must accept:
+
+- The domain object it is acting on (e.g., a `Pitch` for
+  `evaluate_pitch`). Domain objects come from `models/schemas.py` —
+  an agent must never accept or return an ad-hoc dict where a
+  pydantic model already exists for that shape.
+- An optional `context: dict` for anything that doesn't yet warrant
+  its own typed model (already present in `BaseAgent.evaluate_pitch`'s
+  signature). As context needs stabilize, promote frequently-used
+  context keys into a proper model in `models/schemas.py` rather than
+  leaving them as untyped dict entries indefinitely.
+
+## Outputs
+
+Every agent method must return a typed domain object — never a raw
+string, dict, or provider response object. `SharkAgent.evaluate_pitch`
+returns an `Offer` (`models/schemas.py`). Any future agent
+(Verification, Consensus) must define or reuse an equally typed return
+value — plan for a `VerificationResult` and a `ConsensusResult` model
+when those agents are implemented, added to `models/schemas.py`
+alongside the existing domain models.
+
+## Error Handling
+
+**Planned — no error-handling convention exists in code today** (the
+current placeholders simply raise `NotImplementedError`, which is a
+scaffolding marker, not a designed error path). When implemented:
+
+- Recoverable failures (a malformed provider response, a transient
+  provider timeout) must be caught inside the agent and reflected as
+  the `Failed` state in the Agent Orchestration State Machine — never
+  allowed to raise an uncaught exception into the Session Director.
+- Unrecoverable failures (missing required configuration, a
+  programming error) may raise, but must raise a specific exception
+  type, not a bare `Exception`, so the Session Director can
+  distinguish "this agent task failed" from "the process is
+  misconfigured."
+- Every agent failure must be observable — at minimum, logged via
+  `config.logging_config.get_logger(__name__)`; once the Event Bus
+  exists, also via a failure event (see *Message Publishing* below).
+
+## Confidence Scores
+
+**Planned.** Any agent output that represents a judgment rather than a
+fact (a Shark Agent's `Offer`, a Verification Agent's pass/fail, a
+Consensus Engine's aggregated outcome) should carry a `confidence:
+float` field (0.0-1.0) on its output model, so the Session Director
+and, eventually, the frontend's Progressive Disclosure layer
+(`architecture.md`) can decide whether to surface uncertainty to the
+founder. No current output model has this field yet; it should be
+added when the corresponding agent is implemented, not retrofitted
+onto `Offer` speculatively ahead of time.
+
+## Skills
+
+**Planned. No skill system exists today.** A skill is a named,
+bounded capability with a defined input shape, output shape, and
+failure mode — distinct from an unstructured call to
+`BaseProvider.generate()`. For example, `valuation_estimation` or
+`risk_flagging` would be skills, not raw prompts.
+
+When implemented:
+
+- An agent declares the skills it uses (e.g., as a class attribute or
+  constructor argument), rather than a skill being implicitly
+  whatever the current prompt happens to ask for.
+- A skill's prompt template lives in `prompts/`, loaded via
+  `prompts.loader.load_prompt()`, exactly like any other prompt — a
+  skill is a structured wrapper around a prompt plus its
+  input/output validation, not a new prompt-storage mechanism.
+- A skill must be independently testable without needing a full agent
+  or session to exercise it.
+
+## Tool Access
+
+**Planned. No tool-calling mechanism exists today.** Once MCP is
+integrated (`architecture.md` -> *MCP*), tool access must be requested
+by an agent as a named capability (e.g., "I need market data lookup"),
+resolved by the provider/runtime layer, not hardcoded per agent as a
+specific MCP server address. An agent's declared tool needs should be
+inspectable independently of running it, the same way its skills are.
+
+## Memory Access
+
+**Planned. Interfaces exist; no agent uses them yet.** When
+implemented, an agent that needs to read or write persistent state
+must do so exclusively through a `BaseMemory` instance
+(`memory/base_memory.py`) passed to it — never by importing a
+concrete backend (e.g., `InMemoryStore`) directly, and never by
+holding its own separate copy of state. This mirrors how agents must
+depend on `BaseProvider`, not a concrete provider class
+(`architecture.md` -> *LLM Provider Layer*).
+
+## Message Publishing
+
+**Planned. No Event Bus exists today.** Once the Event Bus is
+implemented (`event_catalog.md`), every agent's publisher
+responsibilities are exactly the entries in that catalog where the
+agent is listed as **Publisher** — for example, the Moderator Agent
+publishes `QuestionAsked`; the Verification Agent publishes
+`VerificationFailed`. An agent must never publish an event it is not
+listed as the publisher for in `event_catalog.md`; if a new event is
+needed, the catalog is updated first.
+
+## Message Subscription
+
+**Planned. No Event Bus exists today.** Symmetrically, an agent
+subscribes only to the events `event_catalog.md` lists it as a
+**Subscriber** for. An agent reacting to an event it isn't listed
+against is a signal that either the agent's design or the catalog is
+out of date — resolve the mismatch by updating whichever one is wrong,
+not by quietly wiring up an unlisted subscription.
+
+---
+
+## Summary Checklist for a New Agent
+
+When implementing any new agent (Verification Agent, Moderator Agent,
+or beyond), it must:
+
+1. Subclass `BaseAgent` (or its future equivalent) from `agents/`.
+2. Accept typed domain objects as input; return a typed domain object
+   as output — add new models to `models/schemas.py` as needed.
+3. Track its lifecycle per the Agent Orchestration State Machine in
+   `state_machines.md`.
+4. Handle recoverable errors internally; raise specific exception
+   types for unrecoverable ones.
+5. Attach a `confidence` score to any judgment-based output.
+6. Declare its skills explicitly, backed by `prompts/` templates.
+7. Request tool access by capability, not by hardcoded provider.
+8. Access persistent state only through an injected `BaseMemory`.
+9. Publish and subscribe only to events it is listed against in
+   `event_catalog.md`.
