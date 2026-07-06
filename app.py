@@ -5,19 +5,18 @@ Run with:
     streamlit run app.py
 
 This entry point wires together configuration, logging, and the UI
-layer. It is intentionally free of agent/orchestrator business logic —
-the goal is a project scaffold that starts successfully with zero
-configuration, ready for real functionality to be layered in.
+layer. It contains no agent, orchestration, memory, or LLM logic —
+only what's needed to configure the process and hand off to
+`ui/layout.py`, which composes the full page.
 """
 
 from __future__ import annotations
 
 import streamlit as st
 
-from config.logging_config import setup_logging, get_logger
+from config.logging_config import get_logger, setup_logging
 from config.settings import get_settings
-from ui.home import render_home
-from ui.sidebar import render_sidebar
+from ui.layout import render_app
 
 
 def main() -> None:
@@ -39,8 +38,7 @@ def main() -> None:
         initial_sidebar_state="expanded",
     )
 
-    render_sidebar(settings)
-    render_home(settings)
+    render_app()
 
     logger.debug("Page render complete.")
 
