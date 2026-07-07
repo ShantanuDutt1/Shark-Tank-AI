@@ -27,11 +27,20 @@ any of this must be written).
 
 Shark Tank AI is a turn-based, multi-agent Streamlit application. A
 founder submits a startup proposal; an AI investment committee — a
-Moderator and five distinct Shark Agents (Growth, Financial,
-Technical, Marketing, and Risk investors) — questions the founder,
-deliberates internally without the founder present, verifies its own
-reasoning, reaches consensus, and delivers a single investment
-decision. The founder then resets to begin an entirely new session.
+Moderator and three Shark Agents, each embodying a distinct venture
+capital investment *philosophy* (Conservative, Growth, and Balanced)
+rather than a domain specialty — questions the founder, deliberates
+internally without the founder present, verifies its own reasoning,
+reaches consensus, and delivers a single investment decision. The
+founder then resets to begin an entirely new session.
+
+> **Design history:** Prior to Release 0.3.7, the committee was five
+> Shark Agents distinguished by domain specialty (Growth, Financial,
+> Technical, Marketing, Risk Investor). That design was abandoned in
+> favor of three philosophy-based Sharks, each evaluating the entire
+> business rather than a slice of it. See
+> [`docs/agent_personas.md`](agent_personas.md) for the current
+> persona specification and the rationale for the change.
 
 This is explicitly **not** a chatbot. There is no free-form back and
 forth with a single assistant. The experience has a beginning, a
@@ -210,14 +219,24 @@ content.
 
 **Status: Planned. Personas and interfaces are already modeled today.**
 
-Five distinct investor roles are already first-class values of
-`SpeakerRole`: Growth, Financial, Technical, Marketing, and Risk
-Investor — each with its own color-coded rendering in
-`ui/conversation.py`. `agents/base_agent.py` defines `BaseAgent`, and
-`agents/shark_agent.py` defines the placeholder `SharkAgent` class,
-which will use a `SharkPersona` (`models/schemas.py`), a
-`BaseProvider` implementation, and a persona-specific prompt template
-from `prompts/` to produce an `Offer`. None of this is wired up yet —
+Three investor roles, each a distinct venture capital investment
+philosophy rather than a domain specialty, are first-class values of
+`SpeakerRole`: Conservative VC, Growth VC, and Balanced VC — each with
+its own color-coded rendering in `ui/conversation.py`. Every Shark
+evaluates the whole business (business model, market, competition,
+technology, founder, execution, financials, valuation, operations,
+growth, competitive advantage, and risk); what differs between them is
+how each weighs those factors, not which of them each one looks at.
+See [`docs/agent_personas.md`](agent_personas.md) for the full
+specification, including Dynamic Industry Adaptation — how a Shark
+adapts its reasoning to a pitch's business domain without changing its
+underlying philosophy.
+
+`agents/base_agent.py` defines `BaseAgent`, and `agents/shark_agent.py`
+defines the placeholder `SharkAgent` class, which will use a
+`SharkPersona` (`models/schemas.py`), a `BaseProvider` implementation,
+and a persona-specific prompt template from `prompts/` to produce an
+`Offer`. None of this is wired up yet —
 `SharkAgent.evaluate_pitch()` raises `NotImplementedError`.
 
 ## Verification Agent

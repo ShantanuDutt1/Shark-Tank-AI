@@ -82,24 +82,26 @@ class LLMProvider(str, Enum):
 
 
 class SpeakerRole(str, Enum):
-    """Every participant that can appear in the conversation history."""
+    """Every participant that can appear in the conversation history.
+
+    As of Release 0.3.7, the investment committee is three Shark Agents
+    distinguished by investment *philosophy* (Conservative, Growth,
+    Balanced) rather than five distinguished by domain specialty. See
+    `docs/agent_personas.md` for the philosophy each role represents.
+    """
 
     MODERATOR = "moderator"
-    GROWTH_INVESTOR = "growth_investor"
-    FINANCIAL_INVESTOR = "financial_investor"
-    TECHNICAL_INVESTOR = "technical_investor"
-    MARKETING_INVESTOR = "marketing_investor"
-    RISK_INVESTOR = "risk_investor"
+    CONSERVATIVE_VC = "conservative_vc"
+    GROWTH_VC = "growth_vc"
+    BALANCED_VC = "balanced_vc"
     FOUNDER = "founder"
 
 
 # Human-readable labels shown next to each message in the conversation panel.
 SPEAKER_LABELS: Dict[SpeakerRole, str] = {
     SpeakerRole.MODERATOR: "Moderator",
-    SpeakerRole.GROWTH_INVESTOR: "Growth Investor",
-    SpeakerRole.FINANCIAL_INVESTOR: "Financial Investor",
-    SpeakerRole.TECHNICAL_INVESTOR: "Technical Investor",
-    SpeakerRole.MARKETING_INVESTOR: "Marketing Investor",
-    SpeakerRole.RISK_INVESTOR: "Risk Investor",
+    SpeakerRole.CONSERVATIVE_VC: "Conservative VC",
+    SpeakerRole.GROWTH_VC: "Growth VC",
+    SpeakerRole.BALANCED_VC: "Balanced VC",
     SpeakerRole.FOUNDER: "Founder (User)",
 }

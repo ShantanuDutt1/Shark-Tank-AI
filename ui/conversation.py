@@ -23,11 +23,9 @@ from models.enums import SPEAKER_LABELS, SpeakerRole
 
 _SPEAKER_CSS_CLASS: Dict[SpeakerRole, str] = {
     SpeakerRole.MODERATOR: "stka-speaker-moderator",
-    SpeakerRole.GROWTH_INVESTOR: "stka-speaker-growth",
-    SpeakerRole.FINANCIAL_INVESTOR: "stka-speaker-financial",
-    SpeakerRole.TECHNICAL_INVESTOR: "stka-speaker-technical",
-    SpeakerRole.MARKETING_INVESTOR: "stka-speaker-marketing",
-    SpeakerRole.RISK_INVESTOR: "stka-speaker-risk",
+    SpeakerRole.CONSERVATIVE_VC: "stka-speaker-conservative",
+    SpeakerRole.GROWTH_VC: "stka-speaker-growth",
+    SpeakerRole.BALANCED_VC: "stka-speaker-balanced",
     SpeakerRole.FOUNDER: "stka-speaker-founder",
 }
 
@@ -47,34 +45,24 @@ def get_example_conversation() -> List[Dict[str, Any]]:
             "message": "Welcome to Shark Tank AI. The committee will now review the submitted proposal.",
         },
         {
-            "speaker": SpeakerRole.GROWTH_INVESTOR.value,
+            "speaker": SpeakerRole.CONSERVATIVE_VC.value,
             "timestamp": timestamp,
-            "message": "Can you walk us through your customer acquisition strategy for the next 12 months?",
+            "message": "Before anything else — why will this business fail? Walk me through your existing customers and recurring revenue.",
         },
         {
             "speaker": SpeakerRole.FOUNDER.value,
             "timestamp": timestamp,
-            "message": "We're focused on partnership-led growth, with three regional distributors already signed.",
+            "message": "We're focused on partnership-led growth, with three regional distributors already signed and recurring contracts in place.",
         },
         {
-            "speaker": SpeakerRole.FINANCIAL_INVESTOR.value,
+            "speaker": SpeakerRole.GROWTH_VC.value,
             "timestamp": timestamp,
-            "message": "What does your current burn rate look like, and how many months of runway remain?",
+            "message": "Set aside today's numbers for a moment — if everything works, how large could this actually become, and what's the mechanism that gets you there?",
         },
         {
-            "speaker": SpeakerRole.TECHNICAL_INVESTOR.value,
+            "speaker": SpeakerRole.BALANCED_VC.value,
             "timestamp": timestamp,
-            "message": "How defensible is your core technology against a well-funded competitor entering the space?",
-        },
-        {
-            "speaker": SpeakerRole.MARKETING_INVESTOR.value,
-            "timestamp": timestamp,
-            "message": "Your brand positioning is compelling — how do you plan to scale that message beyond your initial market?",
-        },
-        {
-            "speaker": SpeakerRole.RISK_INVESTOR.value,
-            "timestamp": timestamp,
-            "message": "Walk us through your biggest regulatory or operational risk and how you're mitigating it.",
+            "message": "Given the stage you're at and the evidence on the table so far, is the valuation you're asking for actually proportionate to the risk here?",
         },
     ]
 
