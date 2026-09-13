@@ -40,9 +40,14 @@ from providers.exceptions import (
 logger = get_logger(__name__)
 
 #: Anthropic's server-side web search tool. `max_uses` bounds how many
-#: individual searches the model may run per call, so one Market
-#: Reality Research pass can't spiral into unbounded tool use.
-WEB_SEARCH_TOOL = {"type": "web_search_20250305", "name": "web_search", "max_uses": 6}
+#: individual searches the model may run per *single* `search()` call,
+#: so one Market Reality Research pass can't spiral into unbounded
+#: tool use. Lowered from 6 to 3 in Release 0.6.1: `search()` is now
+#: called once per planned research objective (up to ~6 per session,
+#: see `agents/research_planner.py`) rather than once per session, so
+#: the per-call budget was reduced to keep total worst-case tool use
+#: per session in a similar range to Release 0.6's single-call budget.
+WEB_SEARCH_TOOL = {"type": "web_search_20250305", "name": "web_search", "max_uses": 3}
 
 _MAX_TOKENS_SEARCH = 2000
 

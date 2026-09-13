@@ -302,11 +302,17 @@ class SharkTankOrchestrator:
             self._phase = SessionPhase.IDLE
             return
 
+        # Release 0.6.1 spec Part E §13: a second, defensive PII pass
+        # over whatever the Moderator's LLM call extracted/paraphrased
+        # -- the input it saw was already redacted, but a
+        # paraphrase or re-extraction is new model output, not a
+        # verbatim echo, so it is sanitized again before it becomes
+        # part of persistent session state.
         self._pitch = self._pitch.model_copy(
             update={
-                "description": result.description or raw_description,
-                "founder_name": result.founder_name,
-                "company_name": result.company_name,
+                "description": anonymize_pii(result.description or raw_description),
+                "founder_name": anonymize_pii(result.founder_name),
+                "company_name": anonymize_pii(result.company_name),
                 "ask_amount": result.ask_amount,
                 "equity_offered_pct": result.equity_offered_pct,
                 "valuation": result.valuation,
@@ -374,6 +380,10 @@ class SharkTankOrchestrator:
                 "submit_founder_response() called when it is not the founder's turn"
             )
 
+        # Release 0.6.1 spec Part E §13: founder interaction is
+        # sanitized before it is stored or reaches any Shark prompt,
+        # not just the original proposal.
+        response_text = anonymize_pii(response_text)
         self._say(SpeakerRole.FOUNDER, response_text)
         self.event_bus.publish(
             events.ResponseReceived(session_id=self.session_id, response_text=response_text)
@@ -542,6 +552,7 @@ class SharkTankOrchestrator:
                     interested=offer.interested,
                     amount=offer.amount,
                     equity_pct=offer.equity_pct,
+                    evaluation_available=offer.evaluation_available,
                 )
             )
 
@@ -579,6 +590,11 @@ class SharkTankOrchestrator:
         shark = self._shark_for_role(shark_role)
         offer = self._final_offers[shark_role]
 
+        # Release 0.6.1 spec Part E §13: a negotiation counter is
+        # founder interaction too -- sanitize it the same way as a
+        # Question Round response before it is stored or sent to the
+        # Shark.
+        counter_text = anonymize_pii(counter_text)
         self._say(SpeakerRole.FOUNDER, counter_text)
         self.event_bus.publish(
             events.FounderCounterOffered(
@@ -664,9 +680,20 @@ def _summarize_offers(offers: dict[SpeakerRole, Offer]) -> str:
     not a consensus decision. Used for event payloads only; never
     shown to the founder in chat. Real aggregation logic is Release
     0.7's Consensus Engine, not this.
+
+    Counts only genuinely-evaluated offers as interested/not; Sharks
+    whose evaluation was technically unavailable (Release 0.6.1) are
+    called out separately rather than folded into "not interested,"
+    per the same evaluation-available-vs-genuine-decision distinction
+    `_offer_announcement_text()` applies to the founder-facing text.
     """
-    interested = sum(1 for offer in offers.values() if offer.interested)
-    return f"{interested} of {len(offers)} Sharks expressed interest during deliberation."
+    unavailable = sum(1 for offer in offers.values() if not offer.evaluation_available)
+    evaluated = [offer for offer in offers.values() if offer.evaluation_available]
+    interested = sum(1 for offer in evaluated if offer.interested)
+    summary = f"{interested} of {len(evaluated)} evaluated Sharks expressed interest during deliberation."
+    if unavailable:
+        summary += f" {unavailable} Shark(s) could not be evaluated due to a technical issue."
+    return summary
 
 
 def _summarize_brief(brief: MarketRealityBrief) -> str:
@@ -685,7 +712,18 @@ def _summarize_brief(brief: MarketRealityBrief) -> str:
 
 
 def _offer_announcement_text(offer: Offer) -> str:
-    """Render a Shark's real `Offer` as its own chat-message announcement."""
+    """Render a Shark's real `Offer` as its own chat-message announcement.
+
+    Checks `evaluation_available` before `interested` (Release 0.6.1
+    spec Part Q §15): a Shark that never completed a real evaluation
+    must never be announced as having passed/declined -- that would
+    present a technical failure as an investment decision.
+    """
+    if not offer.evaluation_available:
+        return (
+            "This Shark's evaluation could not be completed due to a technical "
+            f"issue; no investment decision was made. {offer.rationale}"
+        )
     if not offer.interested:
         return f"I'm going to pass on this one. {offer.rationale}"
     text = f"I'd like to offer ${offer.amount:,.0f} for {offer.equity_pct:.1f}% equity."
@@ -696,9 +734,17 @@ def _offer_announcement_text(offer: Offer) -> str:
 
 def _negotiation_response_text(response) -> str:  # type: ignore[no-untyped-def]
     """Render a Shark's `NegotiationResponse` as its own chat-message
-    announcement."""
+    announcement.
+
+    `"unavailable"` (Release 0.6.1) is checked separately from
+    `"rejected"`: a `negotiate()` failure is a technical failure, not
+    the Shark genuinely walking away, and must be worded as such (spec
+    Part Q §15).
+    """
     if response.decision == "accepted":
         return f"Deal. I accept those terms. {response.rationale}"
+    if response.decision == "unavailable":
+        return f"{response.rationale}"
     if response.decision == "rejected":
         return f"I'm going to walk away from this one. {response.rationale}"
     amount = f"${response.amount:,.0f}" if response.amount is not None else "an adjusted amount"

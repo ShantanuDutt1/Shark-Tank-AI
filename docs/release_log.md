@@ -824,6 +824,190 @@ Audio/Video proposals.
 
 ---
 
+## Release 0.6.1 — Hardening, Research Integrity & Failure Semantics
+
+**Theme:** A hardening release on top of Release 0.6, not a feature
+expansion: strengthen Market Reality Research into a planning ->
+targeted-evidence -> synthesis pipeline, close PII gaps beyond the
+initial proposal, and guarantee a provider/research failure can never
+be represented as a genuine investment decision -- so Release 0.7 can
+build a real Verification Agent and Consensus Engine on a trustworthy
+evidence/decision layer.
+
+**Shipped:**
+
+- **Failure semantics** (spec Part Q §15, this release's headline
+  correctness fix): `models.schemas.Offer` gained
+  `evaluation_available: bool = True`; `SharkAgent.fallback_offer()`
+  now sets it `False`. `models.schemas.NegotiationResponse.decision`
+  gained a fourth value, `"unavailable"`, returned only by
+  `SharkAgent.fallback_negotiation_response()`.
+  `orchestrator/orchestrator.py::_offer_announcement_text()` and
+  `_negotiation_response_text()` both check the new signal *before*
+  `interested`/`"rejected"`, so a technical failure is rendered as
+  "evaluation could not be completed" / "could not process your
+  counter-offer," never as a pass or a walk-away.
+  `events.SharkOfferMade` carries `evaluation_available`;
+  `_summarize_offers()`'s internal tally now reports unavailable
+  Sharks separately rather than folding them into "not interested."
+- **PII hardening** (spec Part E §13): `anonymize_pii()` is now also
+  applied to the Moderator's LLM-extracted `description`/`founder_name`
+  /`company_name` before they enter session state, and to every
+  founder Question Round answer and negotiation counter-offer before
+  they are stored or reach any Shark prompt -- closing the gap where
+  only the original proposal was redacted.
+- **Research planning** (spec Parts A/4-5): new
+  `agents/research_planner.py::build_research_plan()`, a deterministic
+  keyword heuristic (no LLM call) classifying a pitch into one of
+  `saas`/`consumer`/`marketplace`/`restaurant`/`cleantech`/
+  `professional_services`, or a conservative `generic` plan when
+  uncertain, producing 3-8 typed `models.schemas.ResearchObjective`
+  entries. `models.schemas.ResearchPlan` is the new typed container.
+- **Targeted, partial-failure-aware evidence gathering** (spec Part C
+  §§6/17): `MarketResearchAgent._gather_evidence()` now calls
+  `research_provider.search()` once per planned objective instead of
+  once per session, catching a `ResearchProviderError` per objective
+  so one failed category never discards the rest. Results are
+  deduplicated by normalized URL (`_dedupe_results()`, spec §20).
+  `MarketRealityBrief` gained `research_objectives`/`failed_objectives`
+  (naming attempted/failed categories) and
+  `has_conflicting_evidence`/`conflicting_evidence_notes` (spec §19).
+  `providers/anthropic_research_provider.py`'s `WEB_SEARCH_TOOL
+  max_uses` lowered 6 -> 3 per call, since `search()` is now called
+  up to ~6 times per session instead of once.
+- **Evidence provenance** (spec Part C §§7-9): `ResearchSource` gained
+  `retrieval_method: str = "model_reported"` (always this value --
+  makes the "not independently verified" limitation explicit in the
+  data, not only in docs) and its `reliability` is now set by a real
+  domain-quality heuristic (`_classify_source_reliability()` --
+  government/regulatory/major-statistics domains rank `"high"`, a
+  short list of recognized financial/industry publications rank
+  `"medium"`, everything else stays the conservative `"unverified"`
+  default) instead of being hardcoded to `"unverified"` for every
+  source. `ClaimAssessment` gained a bounded `status` field
+  (`models.schemas.CLAIM_STATUSES`:
+  `supported`/`partially_supported`/`unsupported`/`contradicted`/
+  `insufficient_evidence`/`not_externally_verifiable`), parsed
+  leniently with an unrecognized value clamped to
+  `insufficient_evidence` rather than raised or trusted blindly.
+- **Deterministic founder-implied valuation** (spec Part C §§10/12):
+  `MarketRealityBrief.founder_implied_valuation` is now computed in
+  Python (`ask_amount / (equity_offered_pct / 100)`) rather than
+  trusted from the synthesis LLM's own arithmetic; the synthesis
+  prompt no longer asks the model to compute it. The prompt also now
+  forbids "wrong"/"incorrect" valuation framing, requiring
+  "above/below the observed benchmark range" language instead (spec
+  §12).
+- **Housekeeping:** `pypdf` (used by `utils/pdf_extraction.py` since
+  Release 0.6) and `reportlab` (used by `tests/test_pdf_extraction.py`
+  since Release 0.6) were both used but declared in neither
+  `requirements.txt` nor `pyproject.toml` -- a pre-existing
+  dependency-declaration gap, found while trying to run the suite in a
+  clean environment. Both now declared (`pypdf` as a runtime
+  dependency, `reportlab` as a dev/test dependency).
+- **Tests:** `tests/test_research_planner.py` (10 tests, fully offline)
+  and `tests/test_market_research_agent.py` (21 tests: provenance,
+  deterministic valuation, reliability heuristic, dedup, partial
+  research, conflicting evidence, malformed/empty synthesis responses,
+  a prompt-injection test for malicious search-snippet content) are
+  new. `tests/fakes.py::MockResearchProvider` gained an optional
+  `responses` scripted-per-call mode (alongside its existing
+  `results`/`raise_error` modes, unchanged) for testing partial
+  research. `tests/test_shark_agent.py` and
+  `tests/test_session_director.py` gained failure-semantics and
+  PII-widening tests, and two tests whose names/assertions described
+  the pre-0.6.1 behavior (`fallback_offer()`'s "pass on this one" text;
+  `fallback_negotiation_response()`'s "honest rejection" framing) were
+  corrected to match the fixed behavior, per this project's established
+  practice of fixing a misleadingly-named test rather than leaving it
+  passing for the wrong reason (see Release 0.4.1's own precedent).
+  The six files this release touched or added
+  (`tests/test_shark_agent.py`, `tests/test_session_director.py`,
+  `tests/test_research_planner.py`, `tests/test_market_research_agent.py`,
+  `tests/test_pii.py`, `tests/test_prompt_safety.py`) run **156 tests,
+  all passing**, under `tests.fakes` doubles with zero network access
+  or API key required anywhere. Full project suite: **212 passing**
+  (see *Known limitations* for the pre-existing, unrelated
+  `tests/test_app_ui.py` flakiness this count excludes).
+
+**Explicitly out of scope (per this release's own scope boundary;
+unchanged from Release 0.6 unless noted above):** a real Verification
+Agent, a real Consensus Engine, multi-round negotiation, Google ADK,
+MCP, Agent Skills, persistent memory, a new search vendor, independent
+URL re-fetching/verification, an LLM-based research-planning
+classifier (a deterministic heuristic was used instead -- see
+`docs/release_backlog.md`), a Streamlit/UI redesign, and a fix for the
+pre-existing `tests/test_app_ui.py` `AppTest` flakiness/`file_uploader`
+incompatibility discovered during this release's own verification pass
+(see *Known limitations*) -- unrelated to this release's scope and
+would have been an unrelated-code-cleanup expansion.
+
+**Known limitations:**
+
+- PII redaction is still exactly the same three regex patterns
+  (email, phone, street address) as Release 0.6 -- 0.6.1 widened
+  *where* redaction is applied, not *what* it detects. Still not a
+  comprehensive PII scrubber.
+- Prompt-injection defense is still architectural wrapping plus a
+  secondary observability-only pattern filter -- not a guarantee an
+  LLM never follows an embedded instruction. New adversarial tests
+  (proposal, founder answer, negotiation counter, search-result
+  snippet) confirm the wrapping is applied at every relevant call site
+  and that a scripted response's output contract is unaffected by
+  injected text, which is what this architecture can actually
+  guarantee -- it is not a claim that a real LLM can never be
+  manipulated.
+- `AnthropicResearchProvider` still trusts the model's self-reported
+  search results; `ResearchSource.retrieval_method` is always
+  `"model_reported"` specifically to keep this limitation visible in
+  the data, not to solve it.
+- The research-planning heuristic is a small, fixed set of six business
+  -model categories plus a generic fallback -- not a general industry
+  taxonomy, and a pitch matching multiple categories' keywords takes
+  whichever is checked first (documented in
+  `agents/research_planner.py`'s own module docstring).
+- Discovered but explicitly not fixed: `tests/test_app_ui.py`'s
+  Streamlit `AppTest`-based integration tests exhibit pre-existing,
+  order-dependent flakiness unrelated to this release's changes
+  (confirmed by running the identical tests against the pre-0.6.1
+  codebase), and two of them (`test_pdf_upload_extracts_real_text_not_just_filename`,
+  `test_pdf_with_no_extractable_text_is_not_marked_uploaded`) fail
+  deterministically against the installed Streamlit 1.41.1 because
+  `AppTest` has no `file_uploader` accessor in that version -- a
+  version-compatibility gap, not a regression from this release. Both
+  are out of this release's scope (fixing them is unrelated test-
+  harness maintenance, not research/PII/failure-semantics hardening).
+- No live Anthropic smoke test or live research smoke test was
+  performed. An `ANTHROPIC_API_KEY` was present in the ambient shell
+  environment during this release's own verification, but real calls
+  made with it failed with `AuthenticationError` -- so even with a key
+  present, no successful live call occurred, and this is reported
+  honestly rather than assumed to have passed. Every claim above about
+  real provider-backed behavior is verified via
+  `tests.fakes.FakeProvider`/`MockResearchProvider` (deterministic,
+  offline).
+
+**Deviations from this specification:**
+
+- The specification's research-planning section allowed either a
+  heuristic or an LLM-based planner; this release chose the
+  deterministic keyword heuristic exclusively; see
+  `docs/release_backlog.md`'s new entry for the reasoning (no provider
+  call, no network dependency, fully offline-testable, and the
+  specification's own instruction not to over-engineer this step).
+- Per-source reliability is a domain-hostname heuristic computed in
+  Python, not an LLM judgment per source -- the specification's Part C
+  §8 did not mandate which approach, and computing it deterministically
+  keeps the claim auditable and avoids asking the synthesis model to
+  simultaneously judge its own sources' credibility while using them.
+- `RawSearchResult` and `BaseResearchProvider`'s interface were left
+  completely unchanged, per the specification's own instruction to
+  preserve the provider abstraction -- a search result's category is
+  tracked only internally within `MarketResearchAgent`, never added to
+  the shared interface type.
+
+---
+
 ## Future Releases
 
 Placeholders for releases not yet started. Each will be filled in with

@@ -104,6 +104,12 @@ class MockResearchProvider(BaseResearchProvider):
       returns the same list of `RawSearchResult`.
     - With `raise_error`: every call raises that
       `ResearchProviderError` instead.
+    - With `responses` (Release 0.6.1): a list of `list[RawSearchResult]`
+      (or `ResearchProviderError` instances) consumed one at a time,
+      in order, across successive calls -- for testing partial
+      research (`agents/market_research_agent.py` now calls `search()`
+      once per planned objective, so some calls can succeed while
+      others fail within the same session).
 
     Every call's `query` is recorded in `.queries`, in order.
     """
@@ -112,10 +118,12 @@ class MockResearchProvider(BaseResearchProvider):
         self,
         *,
         results: list[RawSearchResult] | None = None,
+        responses: list[list[RawSearchResult] | ResearchProviderError] | None = None,
         raise_error: ResearchProviderError | None = None,
         configured: bool = True,
     ) -> None:
         self._results = results if results is not None else []
+        self._responses = list(responses) if responses is not None else None
         self._raise_error = raise_error
         self._configured = configured
         self.queries: list[str] = []
@@ -130,4 +138,11 @@ class MockResearchProvider(BaseResearchProvider):
             raise ResearchProviderNotConfiguredError("MockResearchProvider is not configured")
         if self._raise_error is not None:
             raise self._raise_error
+        if self._responses is not None:
+            if not self._responses:
+                raise AssertionError("MockResearchProvider ran out of scripted responses")
+            next_item = self._responses.pop(0)
+            if isinstance(next_item, ResearchProviderError):
+                raise next_item
+            return list(next_item[:max_results])
         return list(self._results[:max_results])

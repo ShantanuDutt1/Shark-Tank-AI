@@ -6,17 +6,20 @@ three Shark investor personas (Conservative, Growth, Balanced) — gets
 questioned one Shark at a time, watches the committee deliberate
 privately, and receives a session outcome.
 
-> **Status: Release 0.6 — Market Reality, Proposal Validation, Safety,
-> Structured Extraction, and Negotiation.** The session flow is now:
-> Founder Proposal → Moderator Validation & Extraction → Market
-> Reality Research → Shark Analysis → Shark Questions → Internal
-> Deliberation → Initial Offers → Negotiation → Final Outcome. Every
-> stage from validation onward uses real, provider-backed reasoning —
-> not deterministic templates — with a graceful, clearly-labeled
-> fallback at every step if the provider is unconfigured or fails, so
-> the app always keeps running. See *Current Limitations* below and
-> [docs/release_log.md](docs/release_log.md) for exactly what shipped
-> in each release.
+> **Status: Release 0.6.1 — Hardening, Research Integrity & Failure
+> Semantics**, on top of Release 0.6's Market Reality, Proposal
+> Validation, Safety, Structured Extraction, and Negotiation. The
+> session flow is unchanged: Founder Proposal → Moderator Validation &
+> Extraction → Market Reality Research → Shark Analysis → Shark
+> Questions → Internal Deliberation → Initial Offers → Negotiation →
+> Final Outcome. Every stage from validation onward uses real,
+> provider-backed reasoning — not deterministic templates — with a
+> graceful, clearly-labeled fallback at every step if the provider is
+> unconfigured or fails, so the app always keeps running; as of
+> Release 0.6.1, that fallback is also never mistakable for a genuine
+> investment decision (see *What Works Today* below). See *Current
+> Limitations* below and [docs/release_log.md](docs/release_log.md)
+> for exactly what shipped in each release.
 
 ## What Works Today
 
@@ -37,28 +40,44 @@ privately, and receives a session outcome.
   revenue/customers/financials is never itself a rejection reason) and
   extracts founder name, company name, ask amount, equity, and implied
   valuation where stated.
-- **Real Market Reality Research**, grounding every Shark's reasoning
-  in external evidence — market size, competitors, financial
-  benchmarks, comparable transactions — gathered via a real web search
-  (Anthropic's server-side search tool) and synthesized into an
-  uncertainty-aware brief that explicitly distinguishes founder claims
-  from externally-reported evidence and never fabricates a valuation
-  range when the evidence doesn't support one.
+- **Real, planned Market Reality Research.** A deterministic
+  research-planning step first classifies the pitch's business model
+  (SaaS, consumer, marketplace, restaurant, cleantech, professional
+  services, or a conservative generic plan when uncertain) into 3-8
+  targeted evidence categories, then gathers real web search results
+  per category (Anthropic's server-side search tool), and synthesizes
+  them into an uncertainty-aware brief — market size, competitors,
+  financial benchmarks, comparable transactions — that distinguishes
+  founder claims from externally-reported evidence, tags each source's
+  reliability and each claim's validation status, flags conflicting
+  evidence instead of silently picking one source, and never fabricates
+  a valuation range (or a founder-implied valuation, now computed
+  deterministically) when the evidence doesn't support one. A failed
+  research category doesn't discard the rest — partial evidence is
+  preserved and the gap disclosed.
 - **Real Shark investment intelligence.** Each of the three personas
   (Conservative, Growth, Balanced) independently asks pitch-adaptive
   questions, forms a real structured evaluation, deliberates
   (disagreement included) in at most two sentences each, and makes its
   own real offer or declines — per
-  [docs/agent_personas.md](docs/agent_personas.md).
+  [docs/agent_personas.md](docs/agent_personas.md). All three Sharks
+  always evaluate against the identical research evidence.
 - **Real Negotiation.** The founder gets one counter-offer turn with
   each Shark who made an offer; that Shark independently accepts,
   rejects, or modifies.
+- **A technical failure is never presented as a decision.** If a
+  Shark's evaluation or negotiation response fails for a provider
+  reason, the founder sees an honest "evaluation was unavailable" /
+  "could not process your counter-offer" message — never a fabricated
+  pass, decline, or walk-away.
 - **PII redaction and prompt-injection defense.** Emails, phone
-  numbers, and street addresses are redacted from every proposal
-  before anything else sees it; all founder-authored and
-  web-retrieved content is architecturally wrapped as untrusted data
-  in every prompt (see [docs/architecture.md](docs/architecture.md) →
-  *Security*).
+  numbers, and street addresses are redacted from the proposal before
+  anything else sees it, from the Moderator's own extracted fields
+  before they enter session state, and from every founder Question
+  Round answer and negotiation counter-offer before they're stored or
+  reach any Shark prompt; all founder-authored and web-retrieved
+  content is architecturally wrapped as untrusted data in every prompt
+  (see [docs/architecture.md](docs/architecture.md) → *Security*).
 - **Turn-gated founder input.** The chat input is only usable when it
   is genuinely the founder's turn; it locks while the Moderator, a
   Shark, or research is "speaking"/running.
@@ -80,11 +99,18 @@ privately, and receives a session outcome.
 - **No persistence.** Ending the Python process loses every session;
   every `BaseMemory` method still raises `NotImplementedError`.
 - **Security is best-effort, not comprehensive.** PII redaction is
-  regex-based (three identifier types); prompt-injection defense is
+  regex-based (three identifier types — Release 0.6.1 widened *where*
+  it's applied, not *what* it detects); prompt-injection defense is
   architectural wrapping plus a secondary pattern filter, not a
   guarantee an LLM never follows an embedded instruction. See
   [docs/architecture.md](docs/architecture.md) → *Security* for
   documented limitations.
+- **Research provenance is heuristic, not independently verified.**
+  Source reliability is a domain-hostname heuristic, and retrieved
+  URLs are exactly as self-reported by the model — this codebase never
+  independently re-fetches or verifies a source. Business-model
+  classification for research planning is a small keyword heuristic,
+  not a general industry taxonomy or an LLM classifier.
 
 See [docs/release_backlog.md](docs/release_backlog.md) for the full
 roadmap.

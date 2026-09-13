@@ -233,6 +233,14 @@ class SharkAgent(BaseAgent):
         exactly this path -- see `Offer`'s docstring in
         `models/schemas.py`. Never fabricates an amount, equity
         figure, or investment interest.
+
+        `evaluation_available=False` (Release 0.6.1) is the
+        authoritative signal that this is a technical failure, not a
+        genuine decision -- `interested=False` alone would be
+        indistinguishable from a real decline. Callers rendering or
+        aggregating this `Offer` must check `evaluation_available`
+        first (spec Part Q §15: a provider failure must never be
+        presented to the founder as an investment rejection).
         """
         return Offer(
             shark_id=self._shark_id(),
@@ -246,6 +254,7 @@ class SharkAgent(BaseAgent):
                 f"({reason}); no investment decision was made."
             ),
             confidence=0.0,
+            evaluation_available=False,
         )
 
     # ------------------------------------------------------------------
@@ -319,13 +328,16 @@ class SharkAgent(BaseAgent):
 
     def fallback_negotiation_response(self, pitch: Pitch, reason: str) -> NegotiationResponse:
         """An honest, conservative fallback used when `negotiate()`
-        raises: rejects the counter rather than silently accepting
-        terms nobody actually evaluated (spec Part Q: fail in a
-        controlled manner, never fabricate a decision)."""
+        raises. Uses `decision="unavailable"` (Release 0.6.1) rather
+        than `"rejected"`: a technical failure is not a genuine
+        negotiated outcome, and rendering it as a rejection/"walk
+        away" would misrepresent a provider failure as an investment
+        decision nobody actually made (spec Part Q §15). No amount,
+        equity figure, or acceptance is fabricated either way."""
         return NegotiationResponse(
             shark_id=self._shark_id(),
             pitch_id=pitch.id,
-            decision="rejected",
+            decision="unavailable",
             amount=None,
             equity_pct=None,
             conditions=None,
@@ -527,6 +539,16 @@ def _format_market_brief(brief: MarketRealityBrief | None) -> str:
         lines.append(f"Financial benchmarks: {brief.financial_benchmarks}")
     if brief.relevant_transactions:
         lines.append(f"Relevant transactions: {brief.relevant_transactions}")
+    if brief.has_conflicting_evidence:
+        lines.append(
+            f"Conflicting evidence found (do not treat one source as settled fact): "
+            f"{brief.conflicting_evidence_notes or 'sources disagreed on at least one figure.'}"
+        )
+    if brief.failed_objectives:
+        lines.append(
+            "Research categories that could not be completed (technical failure, not "
+            f"negative evidence): {', '.join(brief.failed_objectives)}"
+        )
 
     valuation = brief.valuation
     if valuation.confidence == "insufficient_evidence" or valuation.low is None:

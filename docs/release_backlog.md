@@ -81,7 +81,19 @@ shipped in each release.
   (e.g. a real search API), replacing/supplementing
   `AnthropicResearchProvider`'s LLM-mediated search.
 - A formal security audit / penetration test of the prompt-injection
-  and PII defenses shipped in Release 0.6 — those are documented,
+  and PII defenses shipped in Release 0.6 (still unaddressed after
+  Release 0.6.1's redaction-coverage widening) — those are documented,
   best-effort mitigations, not a verified guarantee.
 - Analytics/telemetry platform.
+- An LLM-based (rather than keyword-heuristic) research-planning
+  classifier. Release 0.6.1's `agents/research_planner.py` deliberately
+  uses a small, deterministic keyword heuristic instead — no provider
+  call, no network dependency, fully offline-testable — per its own
+  spec Part A's "do not hard-code an enormous industry taxonomy... use
+  a small, extensible set of business-model categories." Revisiting
+  this with a real classifier is future scope, not a gap being hidden.
+- PII coverage for founder-authored content beyond the three identifier
+  types (unchanged from Release 0.6's item above); Release 0.6.1 widened
+  *where* redaction is applied (Moderator-extracted fields, Question
+  Round answers, negotiation counters), not *what* it detects.
 

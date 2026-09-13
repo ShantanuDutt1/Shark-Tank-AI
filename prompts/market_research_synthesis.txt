@@ -23,13 +23,31 @@ produce a Market Reality Brief. Distinguish clearly between:
 - Derived: a calculation you made from available numbers.
 - Analyst inference: your own interpretation.
 Never present an inference or derived figure as an externally verified
-fact.
+fact. Never claim a source was independently verified -- every source
+above is exactly as reported by the search step, never independently
+re-fetched or confirmed.
 
 If the search evidence is too thin to support a claim, say so
 explicitly rather than filling the gap with plausible-sounding
 invented information. A valuation range with "insufficient_evidence"
 confidence and null low/high is the CORRECT output when evidence is
-inadequate -- do not force a number.
+inadequate -- do not force a number. Absence of evidence for a claim is
+NOT evidence the claim is false -- use "insufficient_evidence" or
+"not_externally_verifiable", never "contradicted", unless a source
+actually conflicts with the claim.
+
+If sources materially disagree with each other (e.g. two market-size
+figures that differ by an order of magnitude, or conflicting growth
+rates), do not silently pick one and present it as settled fact. Set
+"has_conflicting_evidence" to true, describe the disagreement in
+"conflicting_evidence_notes", and reflect the resulting uncertainty in
+your confidence levels.
+
+When comparing the founder's ask to the evidence, never call the
+founder's valuation "wrong" or "incorrect" -- use only: "above the
+observed benchmark range", "below the observed benchmark range",
+"broadly consistent with available evidence", or "insufficient
+evidence to assess".
 
 Respond with ONLY a single JSON object and nothing else -- no markdown
 fences, no commentary -- matching exactly this shape:
@@ -50,10 +68,11 @@ fences, no commentary -- matching exactly this shape:
     "assumptions": "the key assumptions behind the range, or empty string",
     "confidence": "high", "medium", "low", or "insufficient_evidence"
   },
-  "founder_implied_valuation": a number (derived from the founder's stated ask and equity offered, if both are known) or null,
-  "valuation_comparison": "an explicit comparison of the founder's implied valuation to your estimated range -- e.g. 'appears aggressive relative to comparable evidence', 'roughly in line with comparable evidence', 'appears conservative relative to comparable evidence' -- or 'Insufficient evidence for comparison'",
-  "validated_claims": [{"claim": "a specific founder claim", "external_evidence": "what the evidence shows", "assessment": "e.g. Supported / Partially supported"}],
-  "unsupported_claims": [{"claim": "a specific founder claim", "external_evidence": "what the evidence shows or the lack thereof", "assessment": "e.g. Unverified / Aggressive assumption / Appears aggressive"}],
+  "valuation_comparison": "an explicit comparison of the founder's implied valuation (computed separately, not by you) to your estimated range -- use only: 'above the observed benchmark range', 'below the observed benchmark range', 'broadly consistent with available evidence', or 'insufficient evidence to assess'",
+  "validated_claims": [{"claim": "a specific founder claim", "external_evidence": "what the evidence shows", "assessment": "a short human-readable characterization, e.g. Supported / Partially supported", "status": "one of: supported, partially_supported, unsupported, contradicted, insufficient_evidence, not_externally_verifiable"}],
+  "unsupported_claims": [{"claim": "a specific founder claim", "external_evidence": "what the evidence shows or the lack thereof", "assessment": "a short human-readable characterization, e.g. Unverified / Aggressive assumption", "status": "one of: supported, partially_supported, unsupported, contradicted, insufficient_evidence, not_externally_verifiable"}],
   "material_discrepancies": ["short strings describing any material gap between founder claims and evidence"],
+  "has_conflicting_evidence": true or false,
+  "conflicting_evidence_notes": "a short description of any material disagreement between sources, or empty string if none",
   "research_limitations": "an honest, brief statement of what this research could not determine"
 }

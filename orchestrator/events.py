@@ -216,12 +216,20 @@ class SharkOfferMade(Event):
     """Publisher: Session Director. Fires once per Shark during
     `INVESTMENT_DECISION`, after each Shark's real offer has been
     announced in the conversation. Added in Release 0.6 (spec Part I /
-    Part M)."""
+    Part M).
+
+    `evaluation_available` (Release 0.6.1) is `False` when this Shark's
+    evaluation failed technically -- `interested` is always `False` in
+    that case too (see `models.schemas.Offer`), but a subscriber must
+    check `evaluation_available` first to avoid treating a technical
+    failure as a genuine decline.
+    """
 
     speaker: SpeakerRole
     interested: bool
     amount: float | None = None
     equity_pct: float | None = None
+    evaluation_available: bool = True
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -244,8 +252,11 @@ class FounderCounterOffered(Event):
 @dataclass(frozen=True, kw_only=True)
 class SharkNegotiationResponded(Event):
     """Publisher: Session Director. Fires once per Shark negotiation
-    response (`"accepted"` / `"rejected"` / `"modified"`). Added in
-    Release 0.6."""
+    response (`"accepted"` / `"rejected"` / `"modified"` / (Release
+    0.6.1) `"unavailable"` -- a technical failure prevented a real
+    negotiation decision; see
+    `agents.shark_agent.SharkAgent.fallback_negotiation_response()`).
+    Added in Release 0.6."""
 
     speaker: SpeakerRole
     decision: str

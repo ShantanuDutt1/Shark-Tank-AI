@@ -215,8 +215,8 @@ still awaiting a decision.
 |---|---|
 | **Publisher** | Session Director |
 | **Subscribers** | Frontend, Memory |
-| **Payload** | `speaker: SpeakerRole`, `interested: bool`, `amount: float` (optional), `equity_pct: float` (optional) |
-| **Description** | Added in Release 0.6. Fires once per Shark during `INVESTMENT_DECISION`, immediately after that Shark's real offer (or decline) has been announced in the conversation. |
+| **Payload** | `speaker: SpeakerRole`, `interested: bool`, `amount: float` (optional), `equity_pct: float` (optional), `evaluation_available: bool` (Release 0.6.1, default `True`) |
+| **Description** | Added in Release 0.6. Fires once per Shark during `INVESTMENT_DECISION`, immediately after that Shark's real offer (or decline) has been announced in the conversation. `evaluation_available=False` (Release 0.6.1) means this Shark's evaluation failed technically (a provider failure) -- `interested` is `False` in that case too, but a subscriber must check `evaluation_available` first: a technical failure must never be treated as a genuine decline (see `docs/architecture.md` -> Security / Failure Semantics). |
 
 ### `NegotiationStarted`
 
@@ -242,8 +242,8 @@ still awaiting a decision.
 |---|---|
 | **Publisher** | Session Director |
 | **Subscribers** | Frontend, Memory |
-| **Payload** | `speaker: SpeakerRole`, `decision: str` (`"accepted"` \| `"rejected"` \| `"modified"`) |
-| **Description** | Added in Release 0.6. Fires once per Shark's response to a founder counter-offer. When every interested Shark has responded once, the session transitions to Session Complete. |
+| **Payload** | `speaker: SpeakerRole`, `decision: str` (`"accepted"` \| `"rejected"` \| `"modified"` \| `"unavailable"` (Release 0.6.1)) |
+| **Description** | Added in Release 0.6. Fires once per Shark's response to a founder counter-offer. When every interested Shark has responded once, the session transitions to Session Complete. `decision="unavailable"` (Release 0.6.1) means the Shark's `negotiate()` call failed technically -- distinct from a genuine `"rejected"` outcome; see `agents.shark_agent.SharkAgent.fallback_negotiation_response()`. |
 
 ### `SessionEnded`
 

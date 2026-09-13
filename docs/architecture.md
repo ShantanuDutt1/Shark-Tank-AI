@@ -5,7 +5,7 @@ releases must build toward what's described here; this document is
 not aspirational marketing copy — every claim below is either backed
 by code that exists today or explicitly marked as planned. Per-section
 status markers are kept current as each release ships (most recently
-updated for Release 0.4); the overall architecture itself remains
+updated for Release 0.6.1); the overall architecture itself remains
 locked.
 
 **Status legend used throughout this document:**
@@ -190,8 +190,10 @@ their turn.
 **Status: Session orchestration implemented as of Release 0.4; Shark
 investment intelligence real as of Release 0.5; Moderator validation/
 extraction, Market Reality Research, PII/prompt-injection defense, and
-Negotiation real as of Release 0.6; formal cross-Shark Consensus/
-Verification and full multi-round negotiation still planned.**
+Negotiation real as of Release 0.6; research planning, evidence
+provenance, and technical-failure-vs-genuine-decision semantics
+hardened in Release 0.6.1; formal cross-Shark Consensus/Verification
+and full multi-round negotiation still planned.**
 
 "Backend" here means everything that decides what the committee says
 and does: `agents/`, `orchestrator/`, `providers/`, `memory/`,
@@ -323,8 +325,10 @@ Moderator must not become a safety/verification system beyond this.
 
 **Status: Question-asking, evaluation, and deliberation are real
 (provider-backed) as of Release 0.5, now grounded in external evidence
-as of Release 0.6. Negotiation is real as of Release 0.6. Formal
-cross-Shark consensus integration remains planned.**
+as of Release 0.6. Negotiation is real as of Release 0.6. A technical
+evaluation/negotiation failure is distinguished from a genuine decision
+as of Release 0.6.1. Formal cross-Shark consensus integration remains
+planned.**
 
 Three investor roles, each a distinct venture capital investment
 philosophy rather than a domain specialty, are first-class values of
@@ -357,18 +361,24 @@ defines `SharkAgent`. As of Release 0.6:
   the pitch description, the Q&A transcript, a negotiation counter --
   is wrapped as untrusted content (`agents.prompt_safety.wrap_untrusted()`)
   before being included in a prompt; see *Prompt-Injection Defense*
-  below.
+  below. As of Release 0.6.1, founder Question Round answers and
+  negotiation counters are also PII-redacted (`utils.pii.anonymize_pii()`)
+  before they are stored or reach any of these prompts -- see
+  *Security* below.
 
 Each of these methods *raises* a `providers.exceptions.ProviderError`
 on failure rather than degrading itself -- the Session Director
 catches the error at each call site and substitutes that Shark's own
 `fallback_question()` / `fallback_offer()` / `fallback_deliberation()`
 / `fallback_negotiation_response()` instead of stalling the session.
-`fallback_negotiation_response()` always rejects the counter rather
-than silently accepting terms nobody actually evaluated. This means
-the application still starts and runs a full session successfully
-with zero configuration -- a missing `ANTHROPIC_API_KEY` degrades
-every stage gracefully rather than breaking anything.
+As of Release 0.6.1, `fallback_offer()` sets `evaluation_available=False`
+and `fallback_negotiation_response()` returns `decision="unavailable"`
+-- both distinct, authoritative signals that this was a technical
+failure, never a genuine decline or rejection nobody actually made;
+see *Failure Semantics* below. This means the application still starts
+and runs a full session successfully with zero configuration -- a
+missing `ANTHROPIC_API_KEY` degrades every stage gracefully rather
+than breaking anything.
 
 Full multi-round negotiation across an arbitrary agent list
 (`run_pitch()`) and real cross-Shark Consensus/Verification
@@ -376,7 +386,8 @@ integration remain Release 0.7 scope, not this release.
 
 ## Market Reality Research
 
-**Status: Implemented as of Release 0.6.**
+**Status: Implemented as of Release 0.6; research planning, targeted
+evidence gathering, and stronger provenance added in Release 0.6.1.**
 
 Answers, for a submitted pitch: "how realistic are this founder's
 market, financial, growth, competitive, and valuation claims given
@@ -386,13 +397,29 @@ between `VALIDATION` and `QUESTION_ROUND`
 (see [`state_machines.md`](state_machines.md)), and its output — a
 `models.schemas.MarketRealityBrief` — is passed into every Shark's
 `ask_question()`/`evaluate_pitch()`/`deliberate()` call from then on.
+All three Sharks always receive the identical brief; the research
+layer never determines the investment decision itself, only supplies
+evidence each Shark's persona interprets independently.
 
-**Two-step design**, matching the separation the rest of this codebase
-already uses:
+**Three-step design as of Release 0.6.1** (Release 0.6 had two; a
+planning step was inserted first):
 
-1. **Gathering evidence** (`providers/base_research_provider.py`'s
+1. **Planning** (`agents/research_planner.py::build_research_plan()`):
+   a pure, offline, deterministic keyword heuristic classifies the
+   pitch into one of a small, fixed set of business-model categories
+   (`saas`, `consumer`, `marketplace`, `restaurant`, `cleantech`,
+   `professional_services`) or a conservative `generic` bucket when
+   uncertain, and produces 3-8 targeted `models.schemas.ResearchObjective`
+   entries (e.g. a SaaS pitch gets ARR-multiple and churn-benchmark
+   objectives; a restaurant pitch gets labor-cost and occupancy-cost
+   objectives). No LLM call is involved — this step never needs
+   `ANTHROPIC_API_KEY` and is fully unit-tested offline
+   (`tests/test_research_planner.py`). This is deliberately *not* an
+   attempt at a general industry taxonomy.
+2. **Gathering evidence** (`providers/base_research_provider.py`'s
    `BaseResearchProvider`, a deliberately separate abstraction from
-   `BaseProvider` — see *LLM Provider Layer* below). Production:
+   `BaseProvider` — see *LLM Provider Layer* below), called once per
+   planned objective. Production:
    `providers/anthropic_research_provider.py`'s
    `AnthropicResearchProvider`, which asks an `AnthropicProvider` to
    run the request through Anthropic's server-side web search tool
@@ -401,33 +428,81 @@ already uses:
    `ANTHROPIC_API_KEY` is configured — not the model's unaided
    training knowledge — using only the credential the application
    already requires, per Release 0.6 spec Part S ("no new search
-   vendor/API key"). **Documented limitation:** this provider does not
+   vendor/API key"). A failed *individual* objective is recorded and
+   skipped rather than aborting the whole research step (partial
+   research — see below); results are deduplicated by normalized URL
+   before synthesis. **Documented limitation:** this provider does not
    independently re-fetch or verify each URL; it trusts the model's
-   self-report, which is explicitly instructed never to fabricate one.
-   A future release could replace it with a dedicated search API and
-   independent URL verification without changing `BaseResearchProvider`.
-2. **Synthesis** (a plain `BaseProvider.generate()` call, same kind
-   `SharkAgent`/`ModeratorAgent` make) turns the pitch plus the raw
-   search results into the structured brief, explicitly distinguishing
-   founder-stated claims from externally-reported evidence, derived
-   calculations, and analyst inference (`prompts/market_research_synthesis.txt`)
-   — never presenting an inference as a verified fact.
+   self-report, which is explicitly instructed never to fabricate one
+   — `models.schemas.ResearchSource.retrieval_method` is always
+   `"model_reported"`, making this limitation explicit in the data
+   itself, not only in documentation. A future release could replace
+   it with a dedicated search API and independent URL verification
+   without changing `BaseResearchProvider`.
+3. **Synthesis** (a plain `BaseProvider.generate()` call, same kind
+   `SharkAgent`/`ModeratorAgent` make) turns the pitch plus the
+   deduplicated raw search results into the structured brief,
+   explicitly distinguishing founder-stated claims from
+   externally-reported evidence, derived calculations, and analyst
+   inference (`prompts/market_research_synthesis.txt`) — never
+   presenting an inference as a verified fact. Each claim in
+   `validated_claims`/`unsupported_claims` carries a bounded `status`
+   (`supported`/`partially_supported`/`unsupported`/`contradicted`/
+   `insufficient_evidence`/`not_externally_verifiable`,
+   `models.schemas.CLAIM_STATUSES`), so "no evidence found" is never
+   conflated with "evidence contradicts the claim." Each retrieved
+   `ResearchSource.reliability` is set by a small, deterministic
+   domain-quality heuristic (`agents.market_research_agent
+   ._classify_source_reliability()` — government/regulatory and major
+   statistics domains rank `"high"`, a short list of recognized
+   financial/industry publications rank `"medium"`, everything else
+   stays the conservative `"unverified"` default) rather than the
+   fixed `"unverified"` every source got in Release 0.6.
+
+**Founder-implied valuation is computed deterministically, not by the
+LLM (Release 0.6.1):** `MarketRealityBrief.founder_implied_valuation`
+(`ask_amount / (equity_offered_pct / 100)`) is calculated in Python
+whenever both inputs are present and equity is positive, `None`
+otherwise — removing the risk of the synthesis model silently getting
+its own arithmetic wrong or inventing a number. The synthesis prompt
+no longer asks the model to compute this figure at all.
+
+**Conflicting evidence is preserved, not silently resolved:**
+`MarketRealityBrief.has_conflicting_evidence` /
+`conflicting_evidence_notes` (Release 0.6.1) record when sources
+materially disagree (e.g. two market-size figures an order of
+magnitude apart); the synthesis prompt is explicit that picking one
+and presenting it as settled fact is wrong.
 
 **Uncertainty is structural, not an afterthought:**
 `models.schemas.ValuationEstimate.confidence` includes an
 `"insufficient_evidence"` value, and the synthesis prompt is explicit
 that returning that value with `low`/`high` left `None` is the
 *correct* output when evidence doesn't support a range — never a
-fabricated number. `MarketRealityBrief.is_fallback=True` marks a brief
+fabricated number. The prompt also forbids "wrong"/"incorrect" framing
+when comparing the founder's ask to the evidence, requiring instead
+"above/below the observed benchmark range," "broadly consistent with
+available evidence," or "insufficient evidence to assess" (Release
+0.6.1). `MarketRealityBrief.is_fallback=True` marks a brief
 produced by `MarketResearchAgent.fallback_brief()` (unconfigured
 provider, failed request, or unparseable response) instead of real
 research; every field on a fallback brief stays empty rather than
 invented, and the Session Director publishes `MarketResearchFailed`
-alongside it (see [`event_catalog.md`](event_catalog.md)). A failed
+alongside it (see [`event_catalog.md`](event_catalog.md)).
+
+**Partial research is a first-class, distinct outcome (Release
+0.6.1):** if some planned objectives fail (a search request itself
+errors) while others succeed, the brief is *not* discarded and *not*
+marked `is_fallback` — `MarketRealityBrief.research_objectives` names
+every category the plan attempted, `failed_objectives` names only the
+ones whose evidence-gathering call errored, and successful categories'
+evidence is retained. This is deliberately distinct from a category
+that ran successfully but simply found nothing: a technical failure
+must never be represented as negative evidence. A fully-failed
 *search* step alone (as opposed to a failed synthesis call) degrades
-even more gently: the LLM still synthesizes a (lower-confidence) brief
-from the pitch alone, with the gap noted in the brief's
-`research_limitations`.
+even more gently, exactly as in Release 0.6: the LLM still synthesizes
+a (lower-confidence) brief from the pitch alone, with the gap noted in
+the brief's `research_limitations`.
 
 The UI never dumps the full brief into the chat — the Moderator's chat
 message is a fixed, generic announcement
@@ -593,20 +668,32 @@ code.
 
 ## Security (PII & Prompt-Injection Defense)
 
-**Status: A focused, best-effort implementation as of Release 0.6 --
-not a comprehensive security guarantee. See limitations below.**
+**Status: A focused, best-effort implementation as of Release 0.6,
+with redaction extended to cover more of the session in Release 0.6.1
+-- not a comprehensive security guarantee. See limitations below.**
 
 **PII handling** (`utils/pii.py::anonymize_pii()`): deterministic,
 regex-based redaction of email addresses, phone numbers, and street
-addresses, applied to every proposal's `description` exactly once, in
-`SharkTankOrchestrator.start_session()`, before Validation or anything
-else in the pipeline ever sees it. Deliberately regex-based rather
-than NLP-based: the same input always produces the same output, it
-needs no network access or provider call, and its behavior is
-exhaustively unit-tested. This trades recall (it will miss PII a more
-sophisticated detector would catch) for precision and predictability
--- it is not a comprehensive PII scrubber, and non-identifying
-business content is left untouched by design.
+addresses. As of Release 0.6, applied once to the raw proposal's
+`description` in `SharkTankOrchestrator.start_session()`, before
+Validation or anything else in the pipeline ever sees it. As of
+Release 0.6.1, redaction is also applied: (1) a second time to the
+Moderator's LLM-extracted/paraphrased `description`, `founder_name`,
+and `company_name` before they become part of session state (a
+paraphrase is new model output, not a verbatim echo of already-clean
+input, so it is not assumed clean); (2) to every founder Question
+Round answer, before it is stored in the conversation or reaches any
+Shark prompt; and (3) to every founder negotiation counter-offer, the
+same way. This closes the gap where PII entering through founder
+interaction *after* the initial proposal -- not just the proposal
+itself -- could otherwise reach persistent session state and every
+subsequent Shark prompt unredacted. Deliberately regex-based rather
+than NLP-based throughout: the same input always produces the same
+output, it needs no network access or provider call, and its behavior
+is exhaustively unit-tested. This trades recall (it will miss PII a
+more sophisticated detector would catch) for precision and
+predictability -- it is not a comprehensive PII scrubber, and
+non-identifying business content is left untouched by design.
 
 **Prompt-injection defense** (`agents/prompt_safety.py`): every piece
 of content that did not originate from this codebase's own prompt
@@ -653,6 +740,47 @@ model, not independently re-verified (see *Market Reality Research*
 above). Full PII anonymization coverage, dedicated
 prompt-injection-resistant model configurations, and a formal security
 audit remain outside this release's scope.
+
+## Failure Semantics: Technical Failure vs. Genuine Decision
+
+**Status: Implemented as of Release 0.6.1.**
+
+A provider or research-provider failure must never be presented to the
+founder, or to any code that reads an `Offer`/`NegotiationResponse`,
+as though it were a genuine investment decision. Release 0.6 already
+had this principle for the Session Director's own control flow (a
+failure never stalls the session), but its *rendering* did not: a
+Shark whose evaluation failed technically got `interested=False`, and
+the founder-facing announcement read "I'm going to pass on this one"
+-- indistinguishable from a real decline.
+
+Release 0.6.1 introduces an explicit, authoritative distinction:
+
+- `models.schemas.Offer.evaluation_available` (default `True`) is
+  `False` only for `SharkAgent.fallback_offer()` -- a technical
+  failure, never a real decision. `orchestrator.orchestrator
+  ._offer_announcement_text()` checks this field *before*
+  `interested`, and renders an honest "evaluation could not be
+  completed" message instead of a pass/decline. `events.SharkOfferMade`
+  carries the same flag for any subscriber.
+- `models.schemas.NegotiationResponse.decision` gains a fourth value,
+  `"unavailable"` (alongside `"accepted"`/`"rejected"`/`"modified"`),
+  produced only by `SharkAgent.fallback_negotiation_response()`.
+  `orchestrator.orchestrator._negotiation_response_text()` renders it
+  as an honest "could not process your counter-offer" message, never
+  as the Shark walking away.
+- The same distinction extends to `Market Reality Research`'s partial-
+  failure handling above: a failed research *objective* is recorded in
+  `MarketRealityBrief.failed_objectives`, never folded into "no
+  evidence found" (`ClaimAssessment.status`'s bounded set keeps
+  `insufficient_evidence` and `contradicted` distinct for the same
+  reason).
+
+One Shark's technical failure does not corrupt or block the others --
+each Shark's evaluation, question, deliberation, offer, and negotiation
+response is handled independently, exactly as in Release 0.5/0.6; only
+the *labeling* of a failure changed in 0.6.1, not the degradation
+architecture itself.
 
 ## Agent Skills
 

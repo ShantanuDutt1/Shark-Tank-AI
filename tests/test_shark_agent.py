@@ -326,6 +326,33 @@ def test_fallback_offer_is_honest_not_interested_with_zero_confidence():
     assert offer.equity_pct is None
     assert offer.confidence == 0.0
     assert "test_reason" in offer.rationale
+    # Release 0.6.1: `evaluation_available=False` is the authoritative
+    # "this was a technical failure, not a decision" signal --
+    # `interested=False` alone is ambiguous (spec Part Q section 15).
+    assert offer.evaluation_available is False
+
+
+def test_real_evaluation_leaves_evaluation_available_true():
+    """A genuine evaluation (real or a genuine decline) must never be
+    confused with a fallback -- `evaluation_available` stays `True`
+    for any `Offer` built from an actual provider response."""
+    decline_json = json.dumps(
+        {
+            "interested": False,
+            "amount": None,
+            "equity_pct": None,
+            "conditions": None,
+            "rationale": "Not enough traction for me.",
+            "confidence": 0.6,
+        }
+    )
+    provider = FakeProvider(fixed_response=decline_json)
+    shark = SharkAgent(SpeakerRole.CONSERVATIVE_VC, CONSERVATIVE_PERSONA, provider)
+
+    offer = shark.evaluate_pitch(make_pitch(), {})
+
+    assert offer.evaluation_available is True
+    assert offer.interested is False
 
 
 def test_fallback_offer_never_fabricates_investment_interest():
@@ -434,3 +461,47 @@ def test_sharks_can_disagree_given_different_provider_responses():
     line_b = growth.deliberate(make_pitch(), offer, [])
 
     assert line_a != line_b
+
+
+# ---------------------------------------------------------------------
+# Negotiation failure semantics (Release 0.6.1)
+# ---------------------------------------------------------------------
+
+
+def test_fallback_negotiation_response_is_unavailable_not_rejected():
+    """Release 0.6.1 spec Part Q section 15: a technical failure during
+    negotiation must never be represented as the Shark genuinely
+    rejecting the founder's counter -- `decision` must be
+    `"unavailable"`, a value distinct from a real `"rejected"`
+    outcome."""
+    shark = SharkAgent(SpeakerRole.CONSERVATIVE_VC, CONSERVATIVE_PERSONA, None)
+
+    response = shark.fallback_negotiation_response(make_pitch(), reason="provider_down")
+
+    assert response.decision == "unavailable"
+    assert response.decision != "rejected"
+    assert response.amount is None
+    assert response.equity_pct is None
+    assert "provider_down" in response.rationale
+
+
+def test_real_negotiation_rejection_is_still_rejected():
+    """A genuine LLM-produced rejection must still say `"rejected"` --
+    the new `"unavailable"` value is reserved for the fallback path
+    only, never substituted for a real decision."""
+    provider = FakeProvider(
+        fixed_response=json.dumps(
+            {
+                "decision": "rejected",
+                "amount": None,
+                "equity_pct": None,
+                "conditions": None,
+                "rationale": "Your counter doesn't work for me.",
+            }
+        )
+    )
+    shark = SharkAgent(SpeakerRole.CONSERVATIVE_VC, CONSERVATIVE_PERSONA, provider)
+
+    response = shark.negotiate(make_pitch(), _sample_offer(), "Can you do less equity?", [])
+
+    assert response.decision == "rejected"

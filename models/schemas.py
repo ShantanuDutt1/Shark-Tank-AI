@@ -106,6 +106,14 @@ class Offer(BaseModel):
     `status` remains `DealStatus.PENDING` for every `Offer` Release 0.5
     produces; real negotiation (multiple rounds, counter-offers,
     acceptance) is Release 0.6 scope, not this one.
+
+    `evaluation_available` (Release 0.6.1) is `False` only for
+    `SharkAgent.fallback_offer()` -- a provider failure that prevented
+    evaluation, never a genuine investment decision.
+    `interested=False` alone is ambiguous between "declined" and
+    "couldn't be evaluated"; any caller that renders or aggregates
+    offers must check `evaluation_available` first, so a technical
+    failure is never presented to the founder as a rejection.
     """
 
     shark_id: str
@@ -118,6 +126,7 @@ class Offer(BaseModel):
     confidence: float = 0.5
     status: DealStatus = DealStatus.PENDING
     created_at: datetime = Field(default_factory=_utc_now)
+    evaluation_available: bool = True
 
 
 class NegotiationSession(BaseModel):
@@ -186,6 +195,18 @@ class ResearchSource(BaseModel):
     claim to retain provenance -- this model is that record. Never
     constructed with a fabricated `url`; `reliability` defaults to the
     most conservative value on purpose.
+
+    `reliability` (Release 0.6.1: now actually varies, via
+    `agents.market_research_agent._classify_source_reliability()`'s
+    domain heuristic, instead of being hardcoded) reflects the
+    *source's* documented quality tier (government/regulatory > public
+    filings/financial databases > academic/industry research >
+    financial publications > other), per Release 0.6 spec Part C §8.
+    `retrieval_method` is a separate, orthogonal fact: this codebase
+    never independently re-fetches or verifies a URL -- every source
+    is exactly as the model reported it -- so `retrieval_method`
+    exists to make that limitation explicit in the data itself rather
+    than only in documentation.
     """
 
     title: str
@@ -195,6 +216,22 @@ class ResearchSource(BaseModel):
     retrieved_at: datetime = Field(default_factory=_utc_now)
     relevant_fact: str = ""
     reliability: str = "unverified"  # "high" | "medium" | "low" | "unverified"
+    retrieval_method: str = "model_reported"  # the only value this codebase produces today
+
+
+#: Bounded set of claim-validation outcomes (Release 0.6.1, spec Part
+#: C §9). Deliberately not a hard pydantic enum -- `ClaimAssessment`
+#: parsing is lenient like the rest of this codebase's JSON parsing
+#: (`agents/market_research_agent.py` clamps an unrecognized value to
+#: `"insufficient_evidence"` rather than raising).
+CLAIM_STATUSES: tuple[str, ...] = (
+    "supported",
+    "partially_supported",
+    "unsupported",
+    "contradicted",
+    "insufficient_evidence",
+    "not_externally_verifiable",
+)
 
 
 class ClaimAssessment(BaseModel):
@@ -205,11 +242,21 @@ class ClaimAssessment(BaseModel):
     analyst's characterization (e.g. "Partially supported", "Aggressive
     assumption"), never as a flat true/false verdict, since the
     underlying evidence itself may be incomplete or contested.
+
+    `status` (Release 0.6.1) is the bounded counterpart to the free-text
+    `assessment`: one of `CLAIM_STATUSES`. It exists specifically so
+    "no evidence was found" (`insufficient_evidence`), "evidence
+    conflicts with the claim" (`contradicted`), and "evidence supports
+    only part of the claim" (`partially_supported`) are distinguishable
+    without parsing prose -- spec Part C §9's explicit requirement that
+    absence of evidence must never be treated as proof a claim is
+    false.
     """
 
     claim: str
     external_evidence: str
     assessment: str
+    status: str = "insufficient_evidence"
 
 
 class ValuationEstimate(BaseModel):
@@ -244,6 +291,21 @@ class MarketRealityBrief(BaseModel):
     request, or an unparseable response) rather than real research;
     every field on a fallback brief stays empty/insufficient rather
     than fabricated.
+
+    Release 0.6.1 additions, all optional/defaulted so nothing about
+    the Release 0.6 shape changed: `research_objectives` names the
+    category labels the research plan (`agents/research_planner.py`)
+    attempted this session -- empty on a fully-fallback brief, since no
+    plan was ever executed. `failed_objectives` names categories whose
+    evidence-gathering call itself errored, distinct from a category
+    that ran successfully but found nothing -- spec Part C §16:
+    research failure must never be represented as negative evidence. A
+    non-empty `failed_objectives` alongside `is_fallback=False` means
+    this brief is *partial*, not failed; the categories not listed
+    still contributed real evidence. `has_conflicting_evidence` /
+    `conflicting_evidence_notes` record when retrieved sources
+    materially disagreed (spec Part C §19) -- when `True`, synthesis
+    must not have silently picked one source as fact.
     """
 
     pitch_id: str
@@ -265,6 +327,10 @@ class MarketRealityBrief(BaseModel):
     sources: list[ResearchSource] = Field(default_factory=list)
     is_fallback: bool = False
     created_at: datetime = Field(default_factory=_utc_now)
+    research_objectives: list[str] = Field(default_factory=list)
+    failed_objectives: list[str] = Field(default_factory=list)
+    has_conflicting_evidence: bool = False
+    conflicting_evidence_notes: str = ""
 
 
 class ProposalValidationResult(BaseModel):
@@ -293,13 +359,62 @@ class NegotiationResponse(BaseModel):
     the `NEGOTIATION` phase (spec Part J). Exactly one per Shark whose
     initial `Offer.interested` was `True` -- Sharks who declined during
     `INVESTMENT_DECISION` are never negotiated with.
+
+    `decision == "unavailable"` (Release 0.6.1) is reserved for
+    `SharkAgent.fallback_negotiation_response()`: the Shark's
+    `negotiate()` call failed, so no real negotiation decision was
+    made. This is deliberately distinct from `"rejected"` (a genuine
+    negotiated outcome) -- a technical failure must never be rendered
+    to the founder as the Shark walking away from the deal.
     """
 
     shark_id: str
     pitch_id: str
-    decision: str  # "accepted" | "rejected" | "modified"
+    decision: str  # "accepted" | "rejected" | "modified" | "unavailable"
     amount: float | None = None
     equity_pct: float | None = None
     conditions: str | None = None
     rationale: str
     created_at: datetime = Field(default_factory=_utc_now)
+
+
+# ---------------------------------------------------------------------
+# Release 0.6.1: Research planning
+# ---------------------------------------------------------------------
+
+
+class ResearchObjective(BaseModel):
+    """One targeted evidence-gathering goal within a `ResearchPlan`.
+
+    Deliberately thin, matching `RawSearchResult`'s spirit: a
+    `category` label (e.g. `"market_size_growth"`, used to report
+    which categories succeeded/failed on `MarketRealityBrief`) and the
+    literal search `query` to run for it. Not persisted onto the
+    session's `MarketRealityBrief` itself -- only the category labels
+    are (`research_objectives`/`failed_objectives`), so the brief
+    doesn't need to grow a nested plan object of its own.
+    """
+
+    category: str
+    query: str
+
+
+class ResearchPlan(BaseModel):
+    """A small, pre-search plan for what to research, produced by
+    `agents/research_planner.py::build_research_plan()` before any web
+    search happens (Release 0.6.1 spec Parts A/4-5).
+
+    `business_model` is one of a small, fixed set of categories (see
+    `agents.research_planner.BUSINESS_MODEL_CATEGORIES`) -- a
+    deterministic keyword heuristic, not an LLM classification, so
+    this step never needs a provider call and stays fully testable
+    offline. `is_uncertain=True` means the heuristic could not
+    confidently classify the pitch; `objectives` is then the small,
+    conservative generic plan (spec Part A §4: "use a conservative
+    generic research plan rather than inventing classification"),
+    never an invented specific one.
+    """
+
+    business_model: str
+    is_uncertain: bool
+    objectives: list[ResearchObjective] = Field(default_factory=list)
