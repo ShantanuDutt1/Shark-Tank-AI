@@ -96,63 +96,6 @@ _CSS = """
     font-weight: 500;
 }
 
-/* ---------- Conversation history ---------- */
-.stka-speaker-bubble {
-    border-radius: 0.6rem;
-    padding: 0.7rem 1rem;
-    margin-bottom: 0.65rem;
-    border-left: 4px solid rgba(128, 132, 149, 0.5);
-    background: rgba(128, 132, 149, 0.06);
-}
-.stka-speaker-meta {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 0.25rem;
-}
-.stka-speaker-name {
-    font-weight: 700;
-    font-size: 0.85rem;
-}
-.stka-speaker-timestamp {
-    font-size: 0.72rem;
-    color: var(--stka-muted, #808495);
-}
-.stka-speaker-message {
-    font-size: 0.95rem;
-    line-height: 1.4;
-}
-
-.stka-speaker-moderator {
-    border-left-color: #808495;
-    background: rgba(128, 132, 149, 0.10);
-}
-.stka-speaker-growth {
-    border-left-color: #2ea043;
-    background: rgba(46, 160, 67, 0.08);
-}
-.stka-speaker-financial {
-    border-left-color: #d4a72c;
-    background: rgba(212, 167, 44, 0.10);
-}
-.stka-speaker-technical {
-    border-left-color: #1f6feb;
-    background: rgba(31, 111, 235, 0.08);
-}
-.stka-speaker-marketing {
-    border-left-color: #a371f7;
-    background: rgba(163, 113, 247, 0.09);
-}
-.stka-speaker-risk {
-    border-left-color: #ff4b4b;
-    background: rgba(255, 75, 75, 0.08);
-}
-.stka-speaker-founder {
-    border-left-color: #58a6ff;
-    background: rgba(88, 166, 255, 0.10);
-    margin-left: 1.5rem;
-}
-
 /* ---------- Bottom control bar ---------- */
 /* `position: sticky` (rather than `fixed`) keeps this anchored to the
    bottom of the normal document flow without needing to target

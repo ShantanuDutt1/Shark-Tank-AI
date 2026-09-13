@@ -44,8 +44,14 @@ def test_orchestrator_constructs_without_agents():
     assert orchestrator.agents == []
 
 
-def test_prompt_loader_reads_placeholder_file():
+def test_prompt_loader_reads_persona_system_prompt():
+    """Updated in Release 0.5: prompts/shark_persona_system.txt is now
+    a real, structured persona-system-prompt template (see
+    agents/shark_agent.py), not the Release 0.1-0.4 [PLACEHOLDER]
+    stub -- confirm the loader still finds it and it still contains
+    the {name} placeholder every persona is rendered into."""
     from prompts.loader import load_prompt
 
     content = load_prompt("shark_persona_system")
-    assert "PLACEHOLDER" in content
+    assert "PLACEHOLDER" not in content
+    assert "{name}" in content

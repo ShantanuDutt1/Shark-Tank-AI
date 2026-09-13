@@ -32,22 +32,27 @@ ownership and boundaries, not behavior.
 ## `agents/`
 
 **Contents:** `base_agent.py` (interface), `shark_agent.py`
-(placeholder implementation).
+(`SharkAgent`: `ask_question()` implemented, `evaluate_pitch()` still a
+placeholder), `moderator_agent.py` (`ModeratorAgent`, added Release
+0.4 — does not subclass `BaseAgent`; see its docstring and
+`agent_contract.md`).
 
-- **Purpose:** Houses every agent that participates in a session —
-  currently the Shark Agent; in the future, the Moderator,
-  Verification Agent, and any other agent described in
+- **Purpose:** Houses every agent that participates in a session — the
+  Shark Agent and, as of Release 0.4, the Moderator; in the future,
+  the Verification Agent and any other agent described in
   `architecture.md`.
 - **Responsibility:** Every class here must implement the contract
-  defined in [`agent_contract.md`](agent_contract.md). Agents may
-  depend on `models/`, `providers/`, and `prompts/`; they must not
-  depend on `ui/`.
+  defined in [`agent_contract.md`](agent_contract.md), with the
+  documented exception of `ModeratorAgent` (a facilitator, not an
+  investment-evaluating agent). Agents may depend on `models/`,
+  `providers/`, and `prompts/`; they must not depend on `ui/`.
   Current state: `BaseAgent.evaluate_pitch()` and
-  `SharkAgent.evaluate_pitch()` both raise `NotImplementedError`.
+  `SharkAgent.evaluate_pitch()` both still raise `NotImplementedError`;
+  `SharkAgent.ask_question()` and every `ModeratorAgent` method are
+  implemented (as deterministic placeholders — no LLM call yet).
 - **Ownership:** Backend/agent-logic work.
-- **Future expansion:** A `ModeratorAgent` class and a
-  `VerificationAgent` class are both expected here, each following the
-  same contract as `SharkAgent`.
+- **Future expansion:** A `VerificationAgent` class is expected here,
+  following the same contract as `SharkAgent`.
 
 ## `config/`
 
@@ -120,9 +125,10 @@ ownership and boundaries, not behavior.
 ## `models/`
 
 **Contents:** `schemas.py` (pydantic domain models: `Pitch`,
-`SharkPersona`, `Offer`, `NegotiationSession`, `DealStatus`),
-`enums.py` (`SessionPhase`, `LLMProvider`, `SpeakerRole`, and their
-label/ordering dictionaries).
+`SharkPersona`, `Offer`, `NegotiationSession`, `DealStatus`,
+`ConversationMessage`, `TurnState` — the latter two added in Release
+0.4), `enums.py` (`SessionPhase`, `LLMProvider`, `SpeakerRole`, and
+their label/ordering dictionaries).
 
 - **Purpose:** Shared data shapes and vocabulary used by every other
   package — the UI, agents, orchestrator, and memory all reference the
@@ -140,21 +146,35 @@ label/ordering dictionaries).
 
 ## `orchestrator/`
 
-**Contents:** `orchestrator.py` (`SharkTankOrchestrator`, placeholder
-implementation).
+**Contents:** `orchestrator.py` (`SharkTankOrchestrator` — the Session
+Director; `run_pitch()` still a placeholder, `start_session()` /
+`submit_founder_response()` / `end_session()` implemented in Release
+0.4), `event_bus.py` (`EventBus`, minimal synchronous pub/sub),
+`events.py` (a typed dataclass per `event_catalog.md` message),
+`turn_controller.py` (`TurnController`, the fixed Shark/Founder
+speaking-order sequencer), `exceptions.py` (`SessionDirectorError`,
+`InvalidTurnError`).
 
 - **Purpose:** Coordinates multiple agents for a single session — the
-  seed of the future Session Director and Consensus Engine described
-  in `architecture.md`.
-- **Responsibility:** Depends on `agents/`, `models/`, and (in the
-  future) `memory/`; must never depend on `ui/`. Owns the *sequencing*
-  of agent calls, not the agents' individual behavior.
-  Current state: `run_pitch()` raises `NotImplementedError`.
+  Session Director described in `architecture.md`. The Consensus
+  Engine's real aggregation logic is still planned; Release 0.4's
+  Session Director only takes an explicit placeholder path through
+  that phase (see `orchestrator.py`'s `_run_deliberation_pipeline()`).
+- **Responsibility:** Depends on `agents/`, `models/`, `utils/`, and
+  (in the future) `memory/`; must never depend on `ui/`. Owns the
+  *sequencing* of agent calls and phase transitions, not the agents'
+  individual behavior.
+  Current state: `run_pitch()` raises `NotImplementedError`; the
+  Session Director surface (`start_session()`,
+  `submit_founder_response()`, `end_session()`, and the `phase()` /
+  `conversation()` / `awaiting_founder_response()` properties) is
+  implemented.
 - **Ownership:** Backend/orchestration work.
-- **Future expansion:** This is the most likely home for the Session
-  Director and Consensus Engine responsibilities described in
-  `architecture.md`, and for driving the Agent Orchestration State
-  Machine defined in `state_machines.md`.
+- **Future expansion:** A `VerificationAgent`-backed real verification
+  step and a real Consensus Engine aggregation step, both plugged into
+  `_run_deliberation_pipeline()`'s existing placeholder extension
+  points, and driving the Agent Orchestration State Machine defined in
+  `state_machines.md`.
 
 ## `prompts/`
 
@@ -195,10 +215,14 @@ implementation).
 ## `tests/`
 
 **Contents:** `conftest.py`, `test_config.py`,
-`test_logging_config.py`, `test_smoke.py`.
+`test_logging_config.py`, `test_smoke.py`, and, added in Release 0.4,
+`test_event_bus.py`, `test_turn_controller.py`,
+`test_session_director.py`.
 
-- **Purpose:** Automated verification of configuration, logging, and
-  structural integrity (every package imports cleanly).
+- **Purpose:** Automated verification of configuration, logging,
+  structural integrity (every package imports cleanly), and, as of
+  Release 0.4, the Session Director's orchestration behavior (session
+  lifecycle, turn control, input-locking state, Event Bus ordering).
 - **Responsibility:** Tests must not depend on real network access,
   real API keys, or a running Streamlit server. `conftest.py`'s
   autouse fixture clears the settings cache between tests so each test
@@ -206,16 +230,19 @@ implementation).
 - **Ownership:** Shared; every package that adds behavior should add
   corresponding tests here (or in a same-named submodule if this
   folder grows subpackages).
-- **Future expansion:** Test coverage for agents, orchestrator, and
-  providers once their `NotImplementedError` placeholders are replaced
-  with real logic.
+- **Future expansion:** Test coverage for providers and memory once
+  their `NotImplementedError` placeholders are replaced with real
+  logic, and for `SharkAgent.evaluate_pitch()` once Release 0.5
+  implements it.
 
 ## `ui/`
 
 **Contents:** `layout.py` (page composition), `session_state.py`
-(session state model), `styles.py` (shared CSS), `header.py`,
-`sidebar.py`, `proposal.py`, `conversation.py`, `response.py`,
-`controls.py`.
+(session state model — as of Release 0.4, also `build_pitch_from_state()`
+and `sync_from_director()`, the read/sync helpers every other component
+uses instead of talking to the Session Director's state directly),
+`styles.py` (shared CSS), `header.py`, `sidebar.py`, `proposal.py`,
+`conversation.py`, `response.py`, `controls.py`.
 
 - **Purpose:** Every Streamlit-facing component. This is the only
   package allowed to `import streamlit`.
@@ -223,8 +250,10 @@ implementation).
   once in `session_state.py` — no other module in this folder invents
   its own state key. `layout.py` is the only place components are
   composed together; individual components do not import each other
-  directly. See [`coding_standards.md`](coding_standards.md) →
-  *Session State*.
+  directly (as of Release 0.4, `controls.py` and `response.py` import
+  `orchestrator.orchestrator.SharkTankOrchestrator` and
+  `session_state.py`'s helpers, not one another). See
+  [`coding_standards.md`](coding_standards.md) → *Session State*.
 - **Ownership:** Frontend work.
 - **Future expansion:** New components as new phases of the User
   Session State Machine gain dedicated UI (e.g., a Verification

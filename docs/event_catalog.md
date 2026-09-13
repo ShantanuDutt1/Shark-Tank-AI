@@ -1,12 +1,13 @@
 # Event Catalog
 
-**Status: Fully planned. No Event Bus implementation exists in the
-codebase today.** This document defines the complete message
-vocabulary that any future Event Bus implementation must satisfy. It
-exists so that when the Event Bus is built, every publisher and
-subscriber it needs to support is already agreed upon — the
-implementation should conform to this catalog, not invent its own
-event names or shapes.
+**Status: A minimal synchronous implementation of the Event Bus
+mechanism shipped in Release 0.4** (`orchestrator/event_bus.py`,
+`orchestrator/events.py`), covering every message defined below as a
+typed dataclass and published by the Session Director
+(`orchestrator/orchestrator.py`) at the points documented per-event.
+This document remains the source of truth for the vocabulary —
+`orchestrator/events.py` is a direct transcription of it, not an
+independent design.
 
 Every event name is written in the past tense (something that
 *happened*), except for two explicit request/approval pairs
@@ -34,7 +35,7 @@ still awaiting a decision.
 |---|---|
 | **Publisher** | Frontend (`ui/proposal.py`, via the future Event Bus bridge) |
 | **Subscribers** | Session Director |
-| **Payload** | `proposal_type: str` (`"Text"` \| `"PDF"` \| `"Audio"` \| `"Video"`), `content_reference: str` (raw text or filename) |
+| **Payload** | `proposal_type: str` (`"Text"` \| `"PDF"`), `content_reference: str` (raw text or filename) |
 | **Description** | Fires when the founder has provided proposal content and it has been detected as present (today, this maps to `st.session_state.proposal_uploaded` becoming `True`). Does not imply the proposal has been validated. |
 
 ### `ProposalValidated`
@@ -158,10 +159,91 @@ still awaiting a decision.
 
 | | |
 |---|---|
-| **Publisher** | Consensus Engine |
+| **Publisher** | Session Director |
 | **Subscribers** | Frontend, Memory |
-| **Payload** | `deal_status: str` (a `DealStatus` value), `amount: float` (present when an offer was made), `equity_pct: float` (present when an offer was made), `conditions: str` (optional) |
-| **Description** | Fires exactly once per session — the final decision delivered to the founder. Corresponds to `models.schemas.Offer` and `DealStatus`. Triggers the transition to Session Complete. |
+| **Payload** | `deal_status: str` (a `DealStatus` value, always `"pending"` as of Release 0.6), `amount`/`equity_pct` (unused — see `SharkOfferMade` below), `conditions: str` (explains the Release 0.7 boundary) |
+| **Description** | Fires exactly once per session, when the `INVESTMENT_DECISION` phase begins. As of Release 0.6, each Shark's own real, independent offer is announced individually (see `SharkOfferMade`) — this event's own payload remains a fixed placeholder, since real cross-Shark aggregation into one final combined decision is Release 0.7's Consensus Engine, not this. Triggers the transition to Negotiation (or Session Complete, if no Shark made an offer). |
+
+### `PiiSanitized`
+
+| | |
+|---|---|
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend (diagnostic only) |
+| **Payload** | `redactions_applied: bool` |
+| **Description** | Added in Release 0.6. Fires once, immediately after `SessionStarted`, right after `utils.pii.anonymize_pii()` has redacted the raw proposal — before Validation or anything else sees it. |
+
+### `ProposalExtracted`
+
+| | |
+|---|---|
+| **Publisher** | Session Director (via `ModeratorAgent.validate_and_extract()`) |
+| **Subscribers** | Frontend, Memory |
+| **Payload** | `founder_name: str`, `company_name: str`, `ask_amount: float` (optional), `equity_offered_pct: float` (optional) |
+| **Description** | Added in Release 0.6. Fires once per accepted proposal, immediately after `ProposalValidated`, once the Moderator's real LLM call (or its deterministic fallback) has extracted whatever structured fields are present. |
+
+### `MarketResearchStarted`
+
+| | |
+|---|---|
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend |
+| **Payload** | *(none beyond the universal fields)* |
+| **Description** | Added in Release 0.6. Fires when the `MARKET_RESEARCH` phase begins, right after an accepted proposal. |
+
+### `MarketResearchCompleted`
+
+| | |
+|---|---|
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend, Memory |
+| **Payload** | `summary: str` (a short factual one-liner — industry, valuation confidence, source count; never the full brief) |
+| **Description** | Added in Release 0.6. Fires once Market Reality Research has produced a `MarketRealityBrief` (real or, on failure, `MarketResearchAgent.fallback_brief()` — see `MarketResearchFailed` below). Triggers the transition to Question Round. |
+
+### `MarketResearchFailed`
+
+| | |
+|---|---|
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend (diagnostic only) |
+| **Payload** | `reason: str` (the failing exception's type name) |
+| **Description** | Added in Release 0.6. Fires instead of blocking the session when research could not be completed (unconfigured provider, request failure, unparseable response) — `MarketResearchCompleted` still fires immediately after, with the fallback brief's summary. |
+
+### `SharkOfferMade`
+
+| | |
+|---|---|
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend, Memory |
+| **Payload** | `speaker: SpeakerRole`, `interested: bool`, `amount: float` (optional), `equity_pct: float` (optional) |
+| **Description** | Added in Release 0.6. Fires once per Shark during `INVESTMENT_DECISION`, immediately after that Shark's real offer (or decline) has been announced in the conversation. |
+
+### `NegotiationStarted`
+
+| | |
+|---|---|
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend |
+| **Payload** | *(none beyond the universal fields)* |
+| **Description** | Added in Release 0.6. Fires once, when at least one Shark made an offer and the `NEGOTIATION` phase begins. Never fires if every Shark declined (the session goes straight to Session Complete instead). |
+
+### `FounderCounterOffered`
+
+| | |
+|---|---|
+| **Publisher** | Frontend, relayed by the Session Director |
+| **Subscribers** | Session Director, Memory |
+| **Payload** | `speaker: SpeakerRole` (which Shark this counter targets), `counter_text: str` |
+| **Description** | Added in Release 0.6. Fires once per founder counter-offer submitted during Negotiation. |
+
+### `SharkNegotiationResponded`
+
+| | |
+|---|---|
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend, Memory |
+| **Payload** | `speaker: SpeakerRole`, `decision: str` (`"accepted"` \| `"rejected"` \| `"modified"`) |
+| **Description** | Added in Release 0.6. Fires once per Shark's response to a founder counter-offer. When every interested Shark has responded once, the session transitions to Session Complete. |
 
 ### `SessionEnded`
 

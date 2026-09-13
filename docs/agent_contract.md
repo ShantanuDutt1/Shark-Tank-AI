@@ -1,14 +1,19 @@
 # Agent Contract
 
 **Status: Partially implemented today.** `agents/base_agent.py`
-already defines a `BaseAgent` class with the shape described in
-*Lifecycle* and *Inputs/Outputs* below, and `agents/shark_agent.py`
-implements a placeholder `SharkAgent`. Everything else in this
-document — Skills, Tool Access, Memory Access, Message
-Publishing/Subscription, and structured Error Handling — is planned
-and must be added when a future release builds it out. This document
-is the contract every current and future agent (Shark Agents,
-Moderator, Verification Agent) must satisfy.
+defines `BaseAgent`, and `agents/shark_agent.py`'s `SharkAgent` is a
+real implementation as of Release 0.5 (see *Error Handling* below for
+where its failure-handling deliberately reinterprets this document's
+original wording); `agents/market_research_agent.py`'s
+`MarketResearchAgent` (Release 0.6) follows the same real/fallback
+pattern without being a `BaseAgent` subclass either, for the same
+reason `ModeratorAgent` isn't — it doesn't evaluate a pitch and
+produce an `Offer`, it produces a `MarketRealityBrief`. Everything
+else in this document — Skills, Tool Access, Memory Access, and
+Message Publishing/Subscription — is still planned and must be added
+when a future release builds it out. This document is the contract
+every current and future agent (Shark Agents, Moderator, Market
+Research, Verification Agent) must satisfy.
 
 ## Responsibilities
 
@@ -70,34 +75,55 @@ alongside the existing domain models.
 
 ## Error Handling
 
-**Planned — no error-handling convention exists in code today** (the
-current placeholders simply raise `NotImplementedError`, which is a
-scaffolding marker, not a designed error path). When implemented:
+**Implemented as of Release 0.5, with one deliberate reinterpretation
+of this section's original wording — see the note below.**
 
 - Recoverable failures (a malformed provider response, a transient
-  provider timeout) must be caught inside the agent and reflected as
-  the `Failed` state in the Agent Orchestration State Machine — never
-  allowed to raise an uncaught exception into the Session Director.
+  provider timeout) must never be allowed to raise an uncaught
+  exception into the Session Director unhandled. **As implemented**,
+  `SharkAgent.ask_question()`/`evaluate_pitch()`/`deliberate()`
+  themselves *raise* a specific `providers.exceptions.ProviderError`
+  on any such failure, rather than catching it internally as this
+  section originally specified — `orchestrator/orchestrator.py`'s
+  Session Director is the layer that actually catches it, at each
+  call site, and substitutes that Shark's own `fallback_question()` /
+  `fallback_offer()` / `fallback_deliberation()`. This still satisfies
+  the underlying requirement (no uncaught exception ever reaches the
+  founder or crashes the session), but puts the *decision* of how to
+  degrade at the orchestration layer instead of inside the agent —
+  chosen because the Session Director is what already owns "what
+  happens next," and because it makes each Shark's fallback behavior
+  visible and testable independently of when it's invoked (see
+  `agents/shark_agent.py`'s module docstring).
 - Unrecoverable failures (missing required configuration, a
-  programming error) may raise, but must raise a specific exception
-  type, not a bare `Exception`, so the Session Director can
-  distinguish "this agent task failed" from "the process is
-  misconfigured."
-- Every agent failure must be observable — at minimum, logged via
-  `config.logging_config.get_logger(__name__)`; once the Event Bus
-  exists, also via a failure event (see *Message Publishing* below).
+  programming error) raise a specific exception type, never a bare
+  `Exception` — implemented via `providers.exceptions
+  .ProviderNotConfiguredError` and Python's own built-in exceptions for
+  genuine programming errors.
+- Every agent failure is observable: `orchestrator/orchestrator.py`
+  logs a warning via `config.logging_config.get_logger(__name__)` for
+  every caught `ProviderError`/`ResearchProviderError`, naming the
+  Shark/component and the exception type (never the failed message
+  content or any credentials). As of Release 0.6, some failures are
+  also published as typed events for observability
+  (`MarketResearchFailed` — see `event_catalog.md`), but there is
+  still no generic "agent task failed" event covering every failure
+  mode uniformly; that remains planned.
 
 ## Confidence Scores
 
-**Planned.** Any agent output that represents a judgment rather than a
-fact (a Shark Agent's `Offer`, a Verification Agent's pass/fail, a
-Consensus Engine's aggregated outcome) should carry a `confidence:
-float` field (0.0-1.0) on its output model, so the Session Director
-and, eventually, the frontend's Progressive Disclosure layer
-(`architecture.md`) can decide whether to surface uncertainty to the
-founder. No current output model has this field yet; it should be
-added when the corresponding agent is implemented, not retrofitted
-onto `Offer` speculatively ahead of time.
+**Implemented for `Offer` as of Release 0.5; still planned for other
+agents.** `Offer.confidence: float` (0.0-1.0, `models/schemas.py`) is
+now a real field: `SharkAgent.evaluate_pitch()` sets it from the
+model's own self-reported confidence (floored just above 0.0 so a real
+evaluation is never confused with `fallback_offer()`'s reserved
+`confidence=0.0`, which means "no real evaluation happened," not "very
+low confidence"). It is not calibrated or verified against anything —
+`docs/agent_personas.md` §11's specific confidence-threshold formulas
+remain unimplemented (see that document's §5.1). A Verification
+Agent's pass/fail and a Consensus Engine's aggregated outcome should
+carry the same kind of field when those agents are built; neither
+exists yet.
 
 ## Skills
 

@@ -1,0 +1,23 @@
+Here is the pitch you are questioning:
+
+Company: {company_name}
+Pitch: {pitch_description}
+
+Founder's answers to the committee's questions so far:
+{qa_transcript}
+
+Market Reality Research on this pitch:
+{market_brief}
+
+Ask ONE concise, decision-oriented question that reflects your
+priorities as {name} and could materially change your investment
+decision -- for example (only if relevant to your priorities):
+customer traction, unit economics, margins, customer acquisition,
+competition, defensibility, regulatory exposure, scalability, founder
+capability, capital requirements, market size, or operational
+constraints -- and, where the market research above surfaces a gap or a
+discrepancy between the founder's claims and external evidence, probe
+that directly. Do not repeat a question the committee has already asked.
+
+Respond with ONLY the question itself -- one or two sentences, no
+preamble, no quotation marks, no explanation of why you're asking it.

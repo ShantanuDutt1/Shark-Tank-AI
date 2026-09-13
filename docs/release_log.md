@@ -150,6 +150,680 @@ release — verified by leaving every non-`docs/` file (other than the
 
 ---
 
+## Release 0.4 — Core Conversation Engine
+
+**Theme:** Turn the existing Streamlit interface into a functioning
+turn-based Shark Tank session engine — the conversation/orchestration
+machinery that later releases plug real intelligence into. No
+sophisticated investment reasoning was added.
+
+**Shipped:**
+
+- `orchestrator/events.py`: a typed, `kw_only` dataclass for every
+  message defined in `docs/event_catalog.md`.
+- `orchestrator/event_bus.py`: `EventBus`, a minimal synchronous
+  publish/subscribe implementation.
+- `orchestrator/turn_controller.py`: `TurnController`, the fixed
+  Shark → Founder → Shark → Founder → Shark → Founder sequencer for a
+  Question Round.
+- `orchestrator/exceptions.py`: `SessionDirectorError`,
+  `InvalidTurnError` — specific exception types for unrecoverable
+  orchestration failures, per `agent_contract.md`/`coding_standards.md`.
+- `orchestrator/orchestrator.py`: `SharkTankOrchestrator` grew into the
+  Session Director. Added `start_session()`, `submit_founder_response()`,
+  `end_session()`, and read-only `phase` / `conversation` /
+  `awaiting_founder_response` properties, driving the full User Session
+  State Machine from `IDLE` through `SESSION_COMPLETE`. The original
+  `agents` constructor argument and `run_pitch()` (still
+  `NotImplementedError`) are unchanged.
+- `agents/moderator_agent.py`: `ModeratorAgent` — deterministic,
+  phase-appropriate narration (welcome, validation summary, Question
+  Round and deliberation announcements, closing message). Does not
+  subclass `BaseAgent`; see its docstring for why.
+- `agents/shark_agent.py`: added `ask_question()` (a deterministic,
+  persona-appropriate template) and the three persona constants
+  (`CONSERVATIVE_PERSONA`, `GROWTH_PERSONA`, `BALANCED_PERSONA`).
+  `evaluate_pitch()` is unchanged (`NotImplementedError`).
+- `models/schemas.py`: added `ConversationMessage` and `TurnState`.
+  Relaxed `Pitch.founder_name` / `company_name` / `ask_amount` /
+  `equity_offered_pct` to optional with defaults, since proposal intake
+  still only collects raw, unparsed content (see *Known limitations*).
+- `ui/session_state.py`: added the `_session_director` key, plus two
+  new helpers — `build_pitch_from_state()` and `sync_from_director()` —
+  which are now the only way any other `ui/` module touches Session
+  Director state, keeping `ui/controls.py` and `ui/response.py` from
+  importing each other or the Session Director's internals directly.
+- `ui/controls.py`: Start Session now builds a `Pitch`, creates a new
+  `SharkTankOrchestrator`, and calls `start_session()`; End Session
+  notifies the director before the existing full reset.
+- `ui/response.py`: Submit Response now calls
+  `director.submit_founder_response()` instead of appending to
+  `conversation_history` directly; enablement is still driven entirely
+  by `user_input_enabled`, itself now sourced from the director's
+  `awaiting_founder_response`.
+- `ui/conversation.py`: `conversation_history` entries and the example
+  seed transcript are now `models.schemas.ConversationMessage`
+  instances, not dicts.
+- `ui/styles.py`: replaced the leftover five-Shark-era CSS classes
+  (`stka-speaker-financial`/`technical`/`marketing`/`risk`) with the
+  three-Shark classes the UI actually needs
+  (`stka-speaker-conservative`/`growth`/`balanced`) — this was the gap
+  flagged in `docs/agent_personas.md` §14.
+- Tests: `tests/test_event_bus.py`, `tests/test_turn_controller.py`,
+  `tests/test_session_director.py` (47 tests total across the suite,
+  all passing, including the 10 pre-existing ones unchanged).
+
+**Known limitations:**
+
+- Every Shark question and every Moderator line is a deterministic
+  template, not an LLM call — no `BaseProvider` implementation is
+  wired in yet (Release 0.5+).
+- `Pitch` still has no real founder name, company name, ask amount, or
+  equity — proposal intake collects only raw text or a filename, per
+  spec section 8 ("Do not add sophisticated proposal validation in
+  0.4").
+- Internal Deliberation, Verification, Consensus, and the Investment
+  Decision all run synchronously, back-to-back, inside
+  `submit_founder_response()`'s final call — there is no pause between
+  them for the UI to render an intermediate state, and no real
+  reasoning happens in any of them (`DealStatus.PENDING` is the only
+  possible outcome). A future release that adds real reasoning to any
+  of these phases will likely also want to make each one its own
+  awaitable step.
+- No memory/persistence: ending the Python process (not just the
+  Streamlit session) loses everything, exactly as before this release.
+
+**Explicitly out of scope (per spec section 20; unchanged from prior
+releases unless noted above):** real LLM reasoning, autonomous
+multi-agent debate, VC valuation research, real investment offers, a
+negotiation engine, a real Consensus Engine, Verification Agent
+intelligence, PII anonymization, prompt-injection defense, persistent
+memory, MCP, ADK, Agent Skills, multi-provider production
+infrastructure, analytics/telemetry.
+
+**Decisions that differ from prior documentation:**
+
+- `docs/agent_contract.md`'s "Summary Checklist for a New Agent" item 1
+  calls for every agent to subclass `BaseAgent`. `ModeratorAgent`
+  deliberately does not, because `BaseAgent`'s one abstract method,
+  `evaluate_pitch() -> Offer`, has no meaningful implementation for a
+  non-investing facilitator. Generalizing `BaseAgent` into a
+  facilitator-compatible contract is left to a future release rather
+  than forced to fit here.
+- The Release 0.4 spec's own turn-order diagram lists "Moderator" as
+  the first step of the Question Round sequence. The implementation
+  keeps the Moderator's Question Round announcement as an explicit
+  Session Director call immediately before the sequence starts, rather
+  than a `TurnController` entry, so `TurnController` only ever needs to
+  reason about the Shark/Founder alternation it's actually generic
+  over. The resulting conversation order is identical either way.
+
+---
+
+## Release 0.4.1 — Core Conversation Engine Stabilization, Chat UX & Cleanup
+
+**Theme:** A focused stabilization release on top of Release 0.4: fix
+the proposal-persistence and session-completion lifecycle bugs,
+convert the conversation UI to a real chat session using Streamlit's
+native chat components, remove the obsolete Audio/Video proposal
+inputs, and clean up a misleadingly-named test and every deprecated
+`datetime.utcnow()` call. No Release 0.5 intelligence was added; every
+Shark and Moderator response remains a deterministic template.
+
+**Bug fixes:**
+
+- **Proposal-persistence bug (spec section 4).** Release 0.4's
+  `ui.controls._handle_start_session()` called
+  `reset_session_state()` — a full wipe — immediately after capturing
+  the just-submitted proposal, which cleared `proposal_content`/
+  `proposal_uploaded` even though the backend had already received it.
+  The proposal box visibly went blank the instant a session started.
+  Fixed by replacing that full reset with a new, narrower
+  `ui.session_state.clear_active_session()`, which discards only the
+  previous session's Session Director / conversation / turn state and
+  leaves every `proposal_*` key untouched. `reset_session_state()`
+  (full wipe, including the proposal) remains what End Session calls.
+- **Natural-completion lifecycle bug (spec section 9).** `session_running`
+  used to be a UI-only flag, set to `True` by `_handle_start_session()`
+  and never updated again — so a session that reached
+  `SESSION_COMPLETE` entirely on its own (no further UI click) left
+  `session_running` stuck at `True`: Start stayed disabled, End stayed
+  enabled, forever. Fixed by making `session_running` a pure
+  projection of the Session Director's `phase`, recomputed by
+  `ui.session_state.sync_from_director()` on every sync
+  (`True` for every phase between `IDLE` and `SESSION_COMPLETE`,
+  `False` at both ends) instead of a hand-set flag.
+
+**Chat UX conversion (spec sections 5-7):**
+
+- `ui/conversation.py` now renders `conversation_history` with
+  `st.chat_message` (one call per `ConversationMessage`, each with a
+  speaker-specific avatar) instead of custom `<div>` bubbles.
+- `ui/response.py` now uses a single `st.chat_input`, gated on
+  `awaiting_founder_response`, instead of a text area + submit button
+  pair. `st.chat_input` clears itself after submission, so the manual
+  key-rotation "nonce" trick (`response_input_nonce`) is gone.
+- Neither `models.schemas.ConversationMessage` nor the Session
+  Director's turn-gating logic changed — only the rendering layer did,
+  per spec section 5 ("Do NOT redesign the backend message model").
+- `ui/proposal.py` now shows a read-only "Submitted Proposal" summary
+  once a session has been started (`_session_director` is set),
+  instead of continuing to render an editable text area/uploader that
+  visibly did nothing once the backend had already captured the pitch.
+
+**Proposal input cleanup (spec section 8):**
+
+- Removed Audio and Video from `ui.proposal.PROPOSAL_TYPES` and their
+  file-uploader branches. Only Text and PDF remain. Nothing downstream
+  ever processed audio/video content — this was UI-only cleanup.
+- `docs/event_catalog.md`'s `ProposalUploaded` payload description
+  updated to match (`proposal_type` is now `"Text"` \| `"PDF"`).
+
+**Lifecycle corrections (spec sections 9-11):**
+
+- End Session is now disabled whenever no session is actively running
+  (Idle, or already `SESSION_COMPLETE`) — there's nothing left to
+  stop. Start Session becomes enabled again the moment
+  `session_running` goes back to `False`, including immediately after
+  natural completion.
+- The completed conversation is deliberately **not** cleared on
+  natural completion — it stays visible (and the proposal stays shown,
+  read-only) until the founder clicks Start Session again (which
+  clears the prior session's runtime state, but not the proposal
+  input) or End Session (a full reset, including the proposal).
+- The bottom-bar instruction label now has dedicated copy for
+  `SESSION_COMPLETE` ("Review the conversation above, or click
+  Start Session to begin a new pitch") instead of falling through to
+  generic in-progress phase text.
+
+**Test changes:**
+
+- Corrected a misleadingly-named test in `tests/test_session_director.py`:
+  `test_founder_input_disabled_immediately_after_start_while_shark_speaks_first`
+  claimed input was "disabled immediately after start" but only ever
+  asserted turn *order*, never the input-lock state — which is in fact
+  already `True` by the time `start_session()` returns, since the
+  Moderator's announcement and the first Shark's question run
+  synchronously. Split into two accurately-named tests: one for the
+  turn-order fact, one asserting `awaiting_founder_response is True`
+  directly. Added a further test asserting input stays locked through
+  every phase of the deliberation pipeline, not just at
+  `SESSION_COMPLETE`.
+- Added `tests/test_app_ui.py`: 23 new integration tests using
+  Streamlit's `AppTest` harness (`streamlit.testing.v1.AppTest`) to
+  drive `app.py` end-to-end — proposal persistence across Start, proposal
+  clearing on reset, chat messages sourced from real conversation
+  state, input gating, natural completion, and Stop/reset — the layer
+  where the Release 0.4 proposal bug actually lived and where
+  `tests/test_session_director.py` (which talks to
+  `SharkTankOrchestrator` directly, bypassing Streamlit) could not
+  have caught it.
+- Total suite: 71 tests, all passing (up from 47).
+
+**Warning changes:**
+
+- Every `datetime.utcnow()` call (`models/schemas.py`'s `Pitch.created_at`
+  /`Offer.created_at`/`NegotiationSession.started_at`,
+  `orchestrator/events.py`'s `Event.emitted_at`) replaced with a small
+  local `_utc_now() -> datetime.now(timezone.utc)` helper in each
+  file, per Python's deprecation of the naive-datetime form.
+  `ConversationMessage.created_at` intentionally keeps naive local
+  `datetime.now()` — it's display-only, not a deprecated call, and
+  its docstring already explained why it differs from the others.
+- Full suite now runs with **0 warnings**. (An exact "before" count
+  isn't quoted here because Release 0.4 and this release were
+  committed together — see *Known limitations* below — but every
+  `datetime.utcnow()` call site that existed is confirmed fixed by
+  running the full suite with `-W error::DeprecationWarning`, which
+  now passes clean.)
+
+**Regression:** all 47 Release 0.4 tests continue to pass, unmodified
+except the one corrected test described above.
+
+**Known limitations (unchanged from Release 0.4 unless noted):**
+
+- Every Shark question and every Moderator line is still a
+  deterministic template, not an LLM call.
+- `Pitch` still has no real founder name, company name, ask amount, or
+  equity — proposal intake collects only raw text or a filename.
+- Internal Deliberation, Verification, Consensus, and the Investment
+  Decision still run synchronously, back-to-back, with
+  `DealStatus.PENDING` as the only possible outcome.
+- No memory/persistence: ending the Python process loses everything.
+- PDF upload still only detects file *presence*; content is never
+  read or parsed (unchanged from Release 0.4 — out of scope per spec
+  section 8, "Do not implement advanced PDF intelligence in this
+  release").
+- Manual browser verification was not performed in this environment
+  (no browser available); instead, `tests/test_app_ui.py`'s `AppTest`
+  suite drives the actual `app.py` script end-to-end (every button
+  click, text/chat input, and resulting rerun), and the app was
+  separately confirmed to boot cleanly (`streamlit run app.py`, HTTP
+  200, no exceptions in the server log). Visual/CSS rendering (avatar
+  emoji, spacing, the chat input's position relative to the sticky
+  Start/End bar) was not independently confirmed in an actual browser.
+- Release 0.4 and Release 0.4.1 ended up in the same git commit (Release
+  0.4 had never been committed on its own before 0.4.1 work started),
+  so there is no clean "Release 0.4 only" commit to diff against for
+  historical before/after comparisons (e.g. the exact prior
+  `DeprecationWarning` count). Every current warning count and test
+  result in this entry was verified directly against the current
+  working tree.
+
+**Deviations from this specification:**
+
+- Section 9's "Stop/End becomes disabled when appropriate" and Test C's
+  "Stop is no longer needed" are implemented as an actual `disabled`
+  state on the End Session button once `session_running` is `False`
+  (Idle or Session Complete), rather than leaving it always-clickable
+  as Release 0.4 did. This is a small, deliberate behavior change the
+  spec's wording seemed to call for; noted here since Release 0.4 had
+  explicitly documented End Session as "always enabled."
+- `ui/proposal.py` locking to a read-only summary once a session has
+  started was not explicitly required by any single acceptance
+  criterion, but follows directly from spec section 4's "the UI must
+  not unexpectedly erase the proposal" and section 6's general chat
+  conversion intent — an editable box that silently stopped doing
+  anything once a session started would have been confusing on its
+  own.
+
+### 0.4.1 Finalization Pass
+
+A follow-up audit found four remaining issues before 0.5 work began;
+all four are fixed, and 0.4.1 is considered fully finalized as of this
+pass (72 tests passing at this point, before Release 0.5's additions).
+
+- **Vacuous test assertion.** `tests/test_app_ui.py`'s
+  `test_proposal_is_available_to_the_active_session` contained
+  `assert ... or True`, which could never fail. Fixed by adding
+  `SharkTankOrchestrator.pitch` — a read-only property mirroring the
+  existing `phase`/`conversation` pattern, not a test-only accessor —
+  and asserting `director.pitch.description == SAMPLE_PROPOSAL`
+  directly. Verified the new assertion actually fails when proposal
+  persistence is broken (temporarily reverted the fix and confirmed
+  the test catches it).
+- **Stale README.** Rewritten to describe the actual Release 0.4.1
+  application (chat UI, Session Director, Turn Controller, Event Bus,
+  three Sharks, Text/PDF intake, current limitations, Release 0.5
+  scope) instead of the Release 0.1-era "inert scaffold" description.
+- **Stale `state_machines.md` wording.** The User Session State
+  Machine's diagram and rules still labeled every transition after
+  "Proposal Upload" as "(planned)" even though `SharkTankOrchestrator`
+  has driven all of them since Release 0.4. Updated the top summary,
+  every diagram transition label, and rules 2 and 4 to accurately say
+  "(implemented)" where true, while leaving rule 3 (Verification's
+  failure/retry path) correctly marked planned, since Verification
+  still always passes.
+- **XSS via founder-controlled proposal text.** `ui/proposal.py`'s
+  locked "Submitted Proposal" summary interpolated the founder's raw
+  text directly into `unsafe_allow_html=True` markup, so a proposal
+  containing `<script>...</script>` would have been rendered as
+  markup, not text. Fixed with `html.escape()` on that one value
+  (the only founder-controlled string reaching `unsafe_allow_html`
+  anywhere in the codebase — every other `unsafe_allow_html=True` call
+  site was audited and only ever renders static or phase-derived
+  strings). Added a regression test
+  (`test_founder_proposal_html_is_escaped_not_interpreted`) and
+  verified it fails without the fix.
+
+All 13 items in the Release 0.4.1 spec's manual test checklist were
+re-verified via `AppTest` end-to-end runs of the actual `app.py` after
+these fixes (not just re-inspected).
+
+---
+
+## Release 0.5 — Shark Investment Intelligence
+
+**Theme:** The first real AI investment intelligence, layered onto the
+Release 0.4.1 conversation/orchestration foundation without changing
+it. Each Shark's questions, evaluation, and internal deliberation are
+now real, provider-backed LLM output instead of deterministic
+templates. The Session Director, Turn Controller, Event Bus, and chat
+UI are all unchanged in their own responsibilities — only *what a
+Shark says* changed, not *when* it gets to say it.
+
+**Shipped:**
+
+- `providers/exceptions.py`: `ProviderError`,
+  `ProviderNotConfiguredError`, `ProviderRequestError`,
+  `ProviderResponseError` — specific exception types for every provider
+  failure mode, mirroring `orchestrator/exceptions.py`'s pattern.
+- `providers/anthropic_provider.py`: `AnthropicProvider.generate()` is
+  now a real implementation against the `anthropic` SDK. Reads
+  `ANTHROPIC_API_KEY` exclusively via `config.settings.Settings` (never
+  hardcoded, never read from `st.session_state`); lazily constructs
+  its SDK client so building a provider never touches the network;
+  splits any `role="system"` messages into the API's separate `system`
+  parameter; maps SDK exceptions to `ProviderRequestError` and empty/
+  non-text responses to `ProviderResponseError`; never logs message
+  content or the API key.
+- `prompts/shark_persona_system.txt` and `prompts/pitch_analysis.txt`:
+  replaced their `[PLACEHOLDER]` stubs with real templates. Added two
+  new prompt files following the same convention:
+  `prompts/adaptive_question.txt`, `prompts/deliberation.txt`. All four
+  loaded via the existing `prompts/loader.py` — no second prompt
+  system.
+- `models/schemas.py`: `SharkPersona` gained `priorities: List[str]`
+  and `core_attitude: str` (structured persona data, not prompt text).
+  `Offer` gained `interested: bool`, `rationale: str`, and
+  `confidence: float`; `amount`/`equity_pct` became optional (null
+  when not interested). `status` remains fixed at `DealStatus.PENDING`
+  — Release 0.5 does not implement negotiation.
+- `agents/shark_agent.py`: real `ask_question()` (pitch-adaptive,
+  persona-influenced), real `evaluate_pitch()` (structured JSON →
+  `Offer`, tolerating a markdown code fence), and new `deliberate()`
+  (at-most-two-sentence deliberation line, enforced by a simple
+  sentence-splitting safety net even if the model doesn't comply).
+  Each of these three raises a specific `ProviderError` on failure
+  rather than degrading itself; `fallback_question()`,
+  `fallback_offer()`, and `fallback_deliberation()` are separate public
+  methods holding the honest, deterministic Release 0.4/0.4.1 behavior,
+  called by the Session Director when it catches that error — an
+  explicit choice to keep the "who decides how to degrade" layering
+  `docs/agent_contract.md` already established, rather than having the
+  agent swallow its own failures. `fallback_offer()` never fabricates
+  investment interest (`interested=False`, `confidence=0.0`, an honest
+  rationale).
+- `orchestrator/orchestrator.py`: `SharkTankOrchestrator` gained an
+  injectable `provider` constructor parameter (defaults to a real
+  `AnthropicProvider` built from settings via the new
+  `_build_default_provider()`). `_prompt_shark_turn()` now calls the
+  real `ask_question()`, falling back per-Shark on `ProviderError`.
+  `_run_deliberation_pipeline()` now calls two new private methods,
+  `_evaluate_all_sharks()` and `_deliberate_all_sharks()`, which
+  produce three real `Offer`s and three real deliberation lines
+  (appended to the conversation, founder still excluded — turn gating
+  unchanged), each independently falling back on failure. Verification,
+  Consensus, and the Investment Decision remain exactly the Release
+  0.4.1 deterministic placeholders, per this release's own scope
+  boundary (spec section B17) — `_summarize_offers()`'s "N of 3 Sharks
+  interested" tally is a factual count for event payloads only, never
+  shown to the founder, and explicitly not consensus logic.
+- `ui/sidebar.py` / `models/enums.py`: added `LLMProvider.ANTHROPIC`;
+  Anthropic is now the default, represented provider with real
+  read-only configuration status (not an editable field that did
+  nothing); Gemini/Ollama sections now explicitly say "Not implemented
+  yet." Resolves the "Known gap" `docs/architecture.md` had recorded
+  since Release 0.3.x.
+- `ui/response.py` / `ui/controls.py`: added `st.spinner()` around the
+  Session Director calls that now may take real wall-clock time — no
+  threading, no async framework, per this release's own spec section
+  B24.
+- `tests/fakes.py`: `FakeProvider`, a deterministic offline
+  `BaseProvider` test double (fixed/scripted responses, or a scripted
+  failure), plus `unconfigured_provider()`. Used by every new test
+  below — no test requires network access or an API key.
+- Tests: `tests/test_providers.py` (10 tests: configuration, successful
+  generation, system-message splitting, `max_tokens` forwarding, API
+  failure mapping, empty/non-text response handling), 
+  `tests/test_shark_agent.py` (31 tests: all three personas, distinct
+  system prompts per persona, pitch/conversation content reaching the
+  prompt, structured evaluation and its edge cases, failure handling,
+  deliberation and its two-sentence truncation, disagreement between
+  Sharks), and 12 new integration tests in `tests/test_session_director.py`
+  (all three Sharks participating in deliberation, founder exclusion,
+  concise deliberation, disagreement, provider-failure resilience,
+  adaptive questions, injected-provider wiring). Two Release 0.4 tests
+  were updated to reflect intentionally changed behavior: each Shark
+  now legitimately speaks twice (a question, then a deliberation line)
+  where it used to speak once, and the prompt-loader smoke test no
+  longer expects a `[PLACEHOLDER]` stub.
+- Total suite: **122 tests, all passing**, zero warnings.
+
+**Live Anthropic smoke test:** Not executed. No `ANTHROPIC_API_KEY`
+was available in this environment. This is reported per spec section
+B28 rather than assumed to have passed.
+
+**Explicitly out of scope (per spec sections B17-B20; unchanged from
+prior releases unless noted above):** real Consensus Engine or
+Verification Agent, negotiation/counter-offers, `run_pitch()`,
+proposal validation/PII anonymization/prompt-injection defense, ADK,
+MCP, Agent Skills, persistent memory, retry logic for transient
+provider failures, true asynchronous phase execution, additional LLM
+providers.
+
+**Known limitations:**
+
+- `ask_question()`'s "pitch-adaptive" behavior comes from the model
+  reasoning over the raw pitch text in the prompt, not a distinct
+  industry-classification mechanism — `docs/agent_personas.md` §9's
+  Dynamic Industry Adaptation as its own step remains unimplemented
+  (see that document's new §5.1).
+- `confidence` is the model's own self-reported number with no
+  calibration or verification against it — `docs/agent_personas.md`
+  §11's specific formulas are not implemented.
+- The actual evaluation JSON schema
+  (`interested`/`amount`/`equity_pct`/`conditions`/`rationale`/
+  `confidence`) differs from `docs/agent_personas.md` §5-§7's fuller
+  aspirational schema (`deal_status`, `industry_context`) — a
+  deliberate simplification per this release's own spec section B9,
+  not an oversight; recorded in `docs/release_backlog.md`.
+- No retry on transient provider failures — a single failure
+  immediately falls back to the deterministic path for that one
+  question/evaluation/deliberation call. Correct per this release's
+  scope (spec section B4), but means a flaky connection could degrade
+  an entire session to placeholders one Shark-turn at a time.
+- Every provider-backed call is still fully synchronous, exactly like
+  Release 0.4.1 — the founder's third response can now take several
+  real seconds (three evaluations + three deliberations, sequentially)
+  before the UI updates. A `st.spinner()` is the only affordance added
+  for this; no background execution.
+
+**Deviations from this specification:**
+
+- Section B4 says provider failures must be "handled" and the
+  session "must not become permanently stuck," but doesn't explicitly
+  mandate the layering used here (agent raises, Director catches and
+  substitutes a fallback) versus the agent swallowing its own
+  failures internally. This implementation chose the Director-decides
+  layering because `docs/agent_contract.md` -> *Error Handling*
+  already established exactly that principle for a future release to
+  follow, and Release 0.5 is that release.
+- `agents/shark_agent.py`'s actual JSON schema omits `deal_status` and
+  `industry_context`, both present in `docs/agent_personas.md` §5-§7's
+  "Structured JSON Output Schema" tables, in favor of the field list
+  Release 0.5's own spec section B9 asked for instead
+  (`interested`/`amount`/`equity_pct`/`conditions`/`rationale`/
+  `confidence`). Recorded in both `docs/agent_personas.md` §5.1 and
+  `docs/release_backlog.md`.
+
+---
+
+## Release 0.6 — Market Reality, Proposal Validation, Safety, Structured Extraction, and Negotiation
+
+**Theme:** Ground every Shark's reasoning in real external evidence,
+make proposal validation and structured extraction real (not a
+trivial non-empty check), add a focused security layer (PII redaction
++ prompt-injection defense), and let the founder negotiate once with
+each Shark who made an offer. The session flow is now: Founder
+Proposal → Moderator Validation & Extraction → Market Reality Research
+→ Shark Analysis → Shark Questions → Internal Deliberation → Initial
+Offers → Negotiation → Final Outcome. No Verification Agent, no real
+Consensus Engine, no multi-round negotiation — those remain Release
+0.7 scope, per this release's own Part U.
+
+**Shipped:**
+
+- **Security first** (spec priority order: security → correctness →
+  evidence quality → architecture → testability → UX → polish):
+  `utils/pii.py::anonymize_pii()` (deterministic email/phone/street-
+  address redaction, applied once in `SharkTankOrchestrator
+  .start_session()` before anything else sees the proposal) and
+  `agents/prompt_safety.py` (`wrap_untrusted()`, applied to every
+  founder-authored and web-retrieved string in every prompt this
+  codebase builds; `looks_like_injection_attempt()` as a documented
+  secondary/observability-only filter). Numeric validation
+  (`agents/shark_agent.py::_validate_equity_pct()`/`_validate_amount()`)
+  rejects an out-of-range equity percentage or a negative amount as a
+  `ProviderResponseError`, triggering the normal fallback path rather
+  than accepting a nonsensical figure. `orchestrator/orchestrator.py
+  ::_cap_description_length()` bounds a submitted proposal to 20,000
+  characters before anything processes it.
+- **Real Moderator validation & extraction**
+  (`agents/moderator_agent.py::ModeratorAgent.validate_and_extract()`):
+  a real LLM call decides whether a proposal is legitimate (missing
+  revenue/customers/financials is never itself a rejection reason) and
+  extracts `founder_name`/`company_name`/`ask_amount`/
+  `equity_offered_pct`/`valuation` into a new
+  `models.schemas.ProposalValidationResult`. Raises on failure;
+  `fallback_validate()` (the Release 0.4/0.4.1 trivial non-empty
+  check) is the Session Director's fallback.
+- **Real Market Reality Research**
+  (`agents/market_research_agent.py::MarketResearchAgent`), run once
+  per session between `VALIDATION` and `QUESTION_ROUND`:
+  - `providers/base_research_provider.py`: a new, deliberately
+    separate `BaseResearchProvider` abstraction (not folded into
+    `BaseProvider`) plus `RawSearchResult`.
+  - `providers/anthropic_research_provider.py`:
+    `AnthropicResearchProvider`, using Anthropic's server-side web
+    search tool (`web_search_20250305`, forwarded via a new `tools`
+    kwarg on `AnthropicProvider.generate()`) — real, internet-connected
+    search when `ANTHROPIC_API_KEY` is configured, no second search
+    vendor/API key introduced.
+  - `models/schemas.py`: new `ResearchSource`, `ClaimAssessment`,
+    `ValuationEstimate`, `MarketRealityBrief` — bounded to spec Part
+    C §15's field list. `ValuationEstimate.confidence` includes
+    `"insufficient_evidence"`, the required (not fallback) outcome
+    when evidence doesn't support a range.
+  - `prompts/market_research_search.txt` /
+    `market_research_synthesis.txt`: explicit founder-stated vs.
+    externally-reported vs. derived vs. analyst-inference framing;
+    explicit instructions never to fabricate a URL or a figure, and to
+    treat retrieved page content as data, never instructions.
+  - `MarketResearchAgent.fallback_brief()`: an honest
+    `is_fallback=True` brief when research fails — every field stays
+    empty, never invented.
+- **Shark reasoning grounded in evidence**
+  (`agents/shark_agent.py`): `ask_question()`, `evaluate_pitch()`, and
+  `deliberate()` now each optionally take a `market_brief`. Each Shark
+  is evaluated twice per session — a preliminary evaluation just
+  before its Question Round turn (informing that question), and a
+  final one during Internal Deliberation, now also informed by the
+  founder's actual answers — matching spec Part B's "Shark Analysis"
+  (stage 4) / "Questions" (stage 5) / "Internal Deliberation" (stage
+  6) sequence, without adding a separate round or touching the
+  existing bounded three-Shark turn sequence.
+- **Real offers, announced in chat**
+  (`orchestrator/orchestrator.py::_announce_offers()`): after
+  deliberation, each Shark announces its real, final offer (or
+  decline) as its own chat message, and a new `SharkOfferMade` event
+  fires per Shark.
+- **Real Negotiation** (spec Part J):
+  - `orchestrator/negotiation_controller.py`: `NegotiationController`,
+    a second, deliberately separate turn controller from
+    `orchestrator/turn_controller.py::TurnController` — Negotiation's
+    length is variable (zero to three turns, one per interested Shark)
+    where the Question Round's is fixed, so it needed its own simpler
+    sequencing rather than stretching `TurnController`'s fixed-length
+    assumptions.
+  - `agents/shark_agent.py::SharkAgent.negotiate()` /
+    `fallback_negotiation_response()`: `accepted`/`rejected`/`modified`
+    via a new `models.schemas.NegotiationResponse`. The fallback always
+    rejects rather than silently accepting terms nobody evaluated.
+  - `SharkTankOrchestrator.awaiting_founder_response`/
+    `submit_founder_response()` now dispatch on phase (`QUESTION_ROUND`
+    vs. `NEGOTIATION`) to route founder input to the right handler.
+- **Real PDF text extraction** (`utils/pdf_extraction.py`, via
+  `pypdf`): `ui/proposal.py` now extracts and uses a PDF's actual text
+  as `proposal_content`, not just its filename. A PDF with no
+  extractable text (e.g. a scanned image) is surfaced as an explicit
+  error and not marked as an accepted proposal, never silently treated
+  as an empty-but-valid submission.
+- **State machine extended**: `SessionPhase` gained `MARKET_RESEARCH`
+  (between `VALIDATION` and `QUESTION_ROUND`) and `NEGOTIATION`
+  (between `INVESTMENT_DECISION` and `SESSION_COMPLETE`) —
+  `docs/state_machines.md` updated accordingly. `VERIFICATION` and
+  `CONSENSUS` remain unchanged deterministic pass-through phases.
+- **Event Bus extended** (`orchestrator/events.py`): `PiiSanitized`,
+  `ProposalExtracted`, `MarketResearchStarted`, `MarketResearchCompleted`,
+  `MarketResearchFailed`, `SharkOfferMade`, `NegotiationStarted`,
+  `FounderCounterOffered`, `SharkNegotiationResponded` — all added by
+  extending the existing typed Event Bus, none replacing it.
+- **UI**: an optional, collapsed "Market Reality Research" expander in
+  `ui/proposal.py` (spec Part O: "do not dump a giant research report
+  into the chat" — the chat itself only ever shows the Moderator's
+  fixed, generic research announcement).
+- **Tests**: `tests/test_pii.py` (8), `tests/test_prompt_safety.py`
+  (10), `tests/test_pdf_extraction.py` (4), plus large additions to
+  `tests/test_shark_agent.py` (negotiation, market-brief-aware
+  prompts, numeric validation), `tests/test_session_director.py`
+  (validation, research, offers, negotiation, PII, injection
+  resistance — the whole Release 0.5/0.6 integration section was
+  rewritten to match the new pipeline shape), and `tests/test_app_ui.py`
+  (PDF upload end-to-end, Market Reality expander rendering).
+  `tests/fakes.py` gained `MockResearchProvider` and support for
+  scripting a mid-sequence failure via an exception instance in a
+  `FakeProvider`'s `responses` list. Total suite: **177 tests, all
+  passing**, zero warnings, no live network access or API key required
+  anywhere.
+
+**Explicitly out of scope (per spec Part U; unchanged from prior
+releases unless noted above):** a real Verification Agent, a real
+Consensus Engine, multi-round negotiation (counter-to-a-counter,
+`SharkTankOrchestrator.run_pitch()`), Google ADK, MCP, Agent Skills,
+persistent memory, analytics/telemetry, a five-Shark architecture,
+Audio/Video proposals.
+
+**Known limitations:**
+
+- Dynamic Industry Adaptation (`docs/agent_personas.md` §9) is not a
+  distinct mechanism — questions are adaptive because the model
+  reasons over the raw pitch and market brief text, not because of an
+  explicit industry-classification step or `industry_context` field.
+- The actual evaluation/offer JSON schema
+  (`interested`/`amount`/`equity_pct`/`conditions`/`rationale`/
+  `confidence`) differs from `docs/agent_personas.md` §5-§7's fuller
+  aspirational schema (`deal_status`, `industry_context`) — unchanged
+  from Release 0.5, recorded there and in `docs/release_backlog.md`.
+- `AnthropicResearchProvider` trusts the model's self-reported search
+  results; it does not independently re-fetch or verify each URL. A
+  fabricated or inconsistent-looking source is a documented risk, not
+  a solved problem — see `docs/architecture.md` -> Market Reality
+  Research.
+- PII redaction covers exactly three identifier types (email, phone,
+  street address) via regex — not a comprehensive PII scrubber.
+- Prompt-injection defense is architectural wrapping plus a secondary
+  pattern filter for observability only — not a guarantee an LLM never
+  follows an embedded instruction embedded in founder or web content.
+- Every provider-backed call remains fully synchronous (unchanged
+  since Release 0.4.1/0.5) — a full session with real research,
+  evaluation, deliberation, and negotiation now makes considerably
+  more provider calls in sequence, so real-provider latency compounds
+  further than it did in Release 0.5. Still no threading/async
+  framework, per this release's own spec section B24-equivalent (Part
+  Q's error-handling boundary and the general "do not overbuild"
+  principle carried from prior releases).
+- No live Anthropic smoke test or live research smoke test was
+  performed — no `ANTHROPIC_API_KEY` was available in this
+  environment. Every claim above about real provider-backed behavior
+  is verified via `tests.fakes.FakeProvider`/`MockResearchProvider`
+  (deterministic, offline) and via manual runs confirming the
+  zero-configuration fallback path works end-to-end — not via a live
+  API call. This is reported honestly rather than assumed to have
+  passed.
+
+**Deviations from this specification:**
+
+- Part B's "Shark Analysis" (stage 4) is not a separate round before
+  Questions (stage 5) — each Shark's preliminary evaluation happens
+  immediately before that same Shark's question, within its existing
+  Question Round turn, so the existing bounded three-Shark turn
+  sequence (Part H: "Preserve the existing three-Shark architecture
+  and bounded turn sequence") never needed to change shape.
+  `evaluate_pitch()` is simply called twice per Shark per session
+  (preliminary, then final during deliberation) rather than the
+  pipeline gaining a fourth conversational round.
+- `VERIFICATION` and `CONSENSUS` phases were kept exactly as they were
+  (deterministic pass-through, unchanged code) rather than removed
+  from the state machine, even though Part N's conceptual diagram
+  omits them — Part U's own framing ("0.7 can then build formal
+  verification and consensus on top of this foundation") only makes
+  sense if those phases still exist to build onto, and removing
+  already-documented scaffolding would have been an unnecessary
+  architecture change the spec elsewhere warns against.
+
+---
+
 ## Future Releases
 
 Placeholders for releases not yet started. Each will be filled in with
@@ -157,8 +831,6 @@ the same structure as above (Theme, Shipped, Explicitly out of scope)
 once it actually ships — this log does not get filled in ahead of
 time.
 
-### Release 0.4 — *(not yet started)*
-
-### Release 0.5 — *(not yet started)*
+### Release 0.7 — *(not yet started)*
 
 ### Release 1.0 — *(not yet started)*

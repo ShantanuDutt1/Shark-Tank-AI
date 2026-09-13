@@ -1,2 +1,32 @@
-[PLACEHOLDER]
-Prompt for analyzing an incoming founder pitch will go here.
+Here is the pitch you are evaluating:
+
+Company: {company_name}
+Founder: {founder_name}
+Pitch: {pitch_description}
+
+Founder's answers to the committee's questions so far:
+{qa_transcript}
+
+Market Reality Research on this pitch (external evidence -- weigh this alongside the founder's own claims, not instead of your judgment):
+{market_brief}
+
+Evaluate this pitch the way {name} would, weighing whichever of these
+dimensions matter most given your priorities: business model, market,
+competition, technology, founder, execution, financials, valuation,
+operations, growth, competitive advantage, and risk. If the pitch
+doesn't give you enough to reliably judge the ask -- even with the
+market research above -- say so in your rationale rather than guessing
+at numbers.
+
+Respond with ONLY a single JSON object and nothing else -- no markdown
+fences, no commentary before or after it -- matching exactly this
+shape:
+
+{
+  "interested": true or false,
+  "amount": a number (the dollar amount you would invest) or null if not interested,
+  "equity_pct": a number from 0 to 100 (the equity percentage you would want for that amount) or null if not interested,
+  "conditions": a short string describing any conditions on your offer, or null,
+  "rationale": a 1-3 sentence explanation of your reasoning, written in your own voice,
+  "confidence": a number from 0.0 to 1.0 reflecting how confident you are in this evaluation given the information available
+}

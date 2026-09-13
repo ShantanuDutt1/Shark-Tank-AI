@@ -1,11 +1,20 @@
 # Agent Personas Specification
 
-**Release:** 0.3.7
-**Status:** Specification only. No agent behavior described here is
-implemented in code as of this release. This document is the
-authoritative behavioral specification for every intelligent agent in
-Shark Tank AI — the Moderator and the three Venture Capitalist Sharks
-— that any future release implementing them must satisfy.
+**Release:** 0.3.7 (persona specification); Release 0.5 implemented a
+first, deliberately partial slice of this specification, and Release
+0.6 extended it with Market Reality Research grounding and
+Negotiation — see §5.1 below for exactly what "implemented" means
+here.
+**Status:** Partially implemented as of Release 0.6. Every ✅ marker in
+this document predates Release 0.5 and referred only to shared,
+already-existing infrastructure (e.g. `BaseAgent.evaluate_pitch`'s
+signature); it did not mean persona *behavior* was implemented. This
+document remains the authoritative behavioral target for every
+intelligent agent in Shark Tank AI — the Moderator and the three
+Venture Capitalist Sharks — but `agents/shark_agent.py` implements
+only a subset of it for real (see §5.1); everything else below
+(🧭-marked items, and anything §5.1 doesn't list) remains a target for
+a future release, not current behavior.
 
 **This document completely replaces the Release 0.3.6 version of
 `agent_personas.md`.** The prior version specified five
@@ -139,6 +148,66 @@ unchanged from the prior release):**
 ---
 
 ## 5. Conservative Venture Capitalist
+
+### 5.1 What Release 0.5/0.6 Actually Implemented
+
+Before the persona-by-persona specification below (which remains the
+long-term target), here is exactly what `agents/shark_agent.py`
+implements today, so the ✅/🧭 markers throughout §5-§7 can be read
+against real code rather than assumed:
+
+**Implemented:**
+- Each persona's `name`, `investment_style`, `personality_traits`,
+  `core_attitude`, and `priorities` are real data
+  (`models.schemas.SharkPersona`), rendered into a real system prompt
+  (`prompts/shark_persona_system.txt`) sent to a real Anthropic call
+  for every question, evaluation, deliberation, and (Release 0.6)
+  negotiation response.
+- `ask_question()` is pitch-adaptive (§9's spirit, not yet its
+  industry-taxonomy mechanism — see below) and persona-influenced, and
+  as of Release 0.6 also weighs the Market Reality Brief (external
+  evidence) when forming its question.
+- `evaluate_pitch()` produces a real, structured evaluation via a JSON
+  response, converted into `Offer` — called twice per session as of
+  Release 0.6 (once preliminarily before that Shark's own question,
+  once finally during deliberation, now informed by both the founder's
+  answers and the Market Reality Brief).
+- Real Internal Deliberation: each Shark's own evaluation informs an
+  at-most-two-sentence deliberation line (§12.1's spirit; not its full
+  mechanism — see below).
+- Real Negotiation (Release 0.6, new — not part of this document's
+  original scope): `negotiate()` produces an
+  `accepted`/`rejected`/`modified` response to the founder's one
+  counter-offer, per §J of the Release 0.6 spec.
+
+**Not implemented (still 🧭, exactly as before Release 0.5):**
+- §9's Dynamic Industry Adaptation as a distinct mechanism (an
+  explicit industry-detection/taxonomy step) — Release 0.5's prompts
+  ask the model to reason from the pitch directly, which produces
+  adaptive questions in practice, but there is no separate
+  `industry_context` field or industry-classification step as §9
+  envisions.
+- The "Structured JSON Output Schema" tables in §5-§7 below list
+  `deal_status` and `industry_context` fields. Release 0.5's actual
+  schema (`agents/shark_agent.py`, `prompts/pitch_analysis.txt`) uses
+  `interested: bool` instead of `deal_status`, has no
+  `industry_context`, and adds `amount`/`equity_pct`/`conditions`
+  nulled out whenever `interested` is `false`. This was a deliberate
+  simplification (Release 0.5 spec section B9's field list), not an
+  oversight — reconciling the two schemas is left for whichever future
+  release implements §9 for real.
+- §11's Confidence Thresholds and Equity/Risk formulas — Release 0.5's
+  `confidence` is the model's own self-reported number, unvalidated
+  against any of §11's specific thresholds or formulas.
+- §12.2 Unanimous Rejection, §13's Consensus/negotiation mechanics, all
+  Memory/MCP/Skills permissions, and Verification Agent integration —
+  all still fully planned, not implemented.
+- The Moderator's behavior in §4 is unchanged from Release 0.4.1
+  (deterministic narration) — Release 0.5 only added intelligence to
+  the three Sharks, per its own spec section B19 ("do not accidentally
+  turn the Moderator into a safety/verification system").
+
+---
 
 **Persona sketch.** This Shark's default posture toward any pitch is:
 *prove to me this survives.* Not hostile — genuinely willing to be

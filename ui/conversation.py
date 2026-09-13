@@ -1,77 +1,97 @@
 """
-Turn-based conversation history panel for Shark Tank AI.
+Chat-style conversation panel for Shark Tank AI.
 
-This is explicitly not a chat widget: it renders a linear, read-only
-history of everything said so far, one styled block per message. New
-entries are appended by other components (currently only
-`ui/response.py`, when the founder submits a reply) — this module's
-only job is display, plus seeding the initial example transcript.
+Renders `st.session_state.conversation_history` — a list of typed
+`models.schemas.ConversationMessage` produced by the active Session
+Director (`orchestrator.orchestrator.SharkTankOrchestrator`) and
+synced in by `ui.session_state.sync_from_director()` — as a real chat
+transcript using Streamlit's native `st.chat_message`, one bubble per
+message, oldest first. Release 0.4.1 replaced the previous custom
+`<div>`-based transcript rendering with this (see
+`docs/release_log.md` -> Release 0.4.1); the underlying data source is
+unchanged, and the message model was not touched to make this happen.
 
-No agent logic lives here. `get_example_conversation()` returns static
-placeholder dialogue so the panel isn't empty before real agents
-exist; it makes no decisions and calls no model.
+No agent logic lives here. `get_example_conversation()` still returns
+static placeholder dialogue for the pre-session (Idle) view only — it
+makes no decisions and calls no model.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Dict, List
+from typing import Dict, List
 
 import streamlit as st
 
 from models.enums import SPEAKER_LABELS, SpeakerRole
+from models.schemas import ConversationMessage
+from utils.ids import new_id
 
-_SPEAKER_CSS_CLASS: Dict[SpeakerRole, str] = {
-    SpeakerRole.MODERATOR: "stka-speaker-moderator",
-    SpeakerRole.CONSERVATIVE_VC: "stka-speaker-conservative",
-    SpeakerRole.GROWTH_VC: "stka-speaker-growth",
-    SpeakerRole.BALANCED_VC: "stka-speaker-balanced",
-    SpeakerRole.FOUNDER: "stka-speaker-founder",
+#: Avatar shown next to each speaker's name in the chat transcript —
+#: the only per-speaker visual distinction this module makes; no
+#: custom CSS is needed on top of `st.chat_message`'s own styling.
+_SPEAKER_AVATAR: Dict[SpeakerRole, str] = {
+    SpeakerRole.MODERATOR: "🎙️",
+    SpeakerRole.CONSERVATIVE_VC: "🛡️",
+    SpeakerRole.GROWTH_VC: "🚀",
+    SpeakerRole.BALANCED_VC: "⚖️",
+    SpeakerRole.FOUNDER: "🐟",
 }
 
 
-def get_example_conversation() -> List[Dict[str, Any]]:
-    """Return a static example transcript used to seed a fresh session.
+def get_example_conversation() -> List[ConversationMessage]:
+    """Return a static example transcript used to seed a pre-session view.
 
-    Every message shares one timestamp (the moment the session was
-    seeded) since these are illustrative placeholder messages, not a
-    real recorded exchange.
+    Purely illustrative placeholder dialogue shown only while Idle
+    (`ui/layout.py`'s `_seed_example_conversation_if_empty()` only uses
+    this when `conversation_history` is empty) — the moment a real
+    session starts, `ui.controls._handle_start_session()` clears it and
+    this is fully replaced by the Session Director's own conversation.
     """
-    timestamp = datetime.now().strftime("%H:%M:%S")
+    example_lines = [
+        (
+            SpeakerRole.MODERATOR,
+            "Welcome to Shark Tank AI. The committee will now review the "
+            "submitted proposal.",
+        ),
+        (
+            SpeakerRole.CONSERVATIVE_VC,
+            "Before anything else — why will this business fail? Walk me "
+            "through your existing customers and recurring revenue.",
+        ),
+        (
+            SpeakerRole.FOUNDER,
+            "We're focused on partnership-led growth, with three regional "
+            "distributors already signed and recurring contracts in place.",
+        ),
+        (
+            SpeakerRole.GROWTH_VC,
+            "Set aside today's numbers for a moment — if everything works, "
+            "how large could this actually become, and what's the "
+            "mechanism that gets you there?",
+        ),
+        (
+            SpeakerRole.BALANCED_VC,
+            "Given the stage you're at and the evidence on the table so "
+            "far, is the valuation you're asking for actually proportionate "
+            "to the risk here?",
+        ),
+    ]
     return [
-        {
-            "speaker": SpeakerRole.MODERATOR.value,
-            "timestamp": timestamp,
-            "message": "Welcome to Shark Tank AI. The committee will now review the submitted proposal.",
-        },
-        {
-            "speaker": SpeakerRole.CONSERVATIVE_VC.value,
-            "timestamp": timestamp,
-            "message": "Before anything else — why will this business fail? Walk me through your existing customers and recurring revenue.",
-        },
-        {
-            "speaker": SpeakerRole.FOUNDER.value,
-            "timestamp": timestamp,
-            "message": "We're focused on partnership-led growth, with three regional distributors already signed and recurring contracts in place.",
-        },
-        {
-            "speaker": SpeakerRole.GROWTH_VC.value,
-            "timestamp": timestamp,
-            "message": "Set aside today's numbers for a moment — if everything works, how large could this actually become, and what's the mechanism that gets you there?",
-        },
-        {
-            "speaker": SpeakerRole.BALANCED_VC.value,
-            "timestamp": timestamp,
-            "message": "Given the stage you're at and the evidence on the table so far, is the valuation you're asking for actually proportionate to the risk here?",
-        },
+        ConversationMessage(
+            id=new_id("example_"),
+            speaker=speaker,
+            content=content,
+            turn_index=index,
+        )
+        for index, (speaker, content) in enumerate(example_lines)
     ]
 
 
 def render_conversation_history() -> None:
-    """Render the full conversation history panel."""
+    """Render the full conversation as a chat transcript."""
     st.subheader("Investment Committee Session")
 
-    history = st.session_state.conversation_history
+    history: List[ConversationMessage] = st.session_state.conversation_history
     if not history:
         st.caption("No conversation yet.")
         return
@@ -80,25 +100,11 @@ def render_conversation_history() -> None:
         _render_message(entry)
 
 
-def _render_message(entry: Dict[str, Any]) -> None:
-    raw_speaker = entry.get("speaker", SpeakerRole.MODERATOR.value)
-    try:
-        speaker = SpeakerRole(raw_speaker)
-    except ValueError:
-        speaker = SpeakerRole.MODERATOR
+def _render_message(entry: ConversationMessage) -> None:
+    avatar = _SPEAKER_AVATAR.get(entry.speaker, "💬")
+    label = SPEAKER_LABELS.get(entry.speaker, "Unknown")
+    timestamp = entry.created_at.strftime("%H:%M:%S")
 
-    css_class = _SPEAKER_CSS_CLASS.get(speaker, "stka-speaker-moderator")
-    label = SPEAKER_LABELS.get(speaker, "Unknown")
-    timestamp = entry.get("timestamp", "--:--:--")
-    message = entry.get("message", "")
-
-    st.markdown(
-        f'<div class="stka-speaker-bubble {css_class}">'
-        '<div class="stka-speaker-meta">'
-        f'<span class="stka-speaker-name">{label}</span>'
-        f'<span class="stka-speaker-timestamp">{timestamp}</span>'
-        "</div>"
-        f'<div class="stka-speaker-message">{message}</div>'
-        "</div>",
-        unsafe_allow_html=True,
-    )
+    with st.chat_message(entry.speaker.value, avatar=avatar):
+        st.caption(f"{label} · {timestamp}")
+        st.markdown(entry.content)

@@ -1,0 +1,21 @@
+Here is the pitch the committee just heard:
+
+Company: {company_name}
+Pitch: {pitch_description}
+
+Founder's answers to the committee's questions:
+{qa_transcript}
+
+Your own evaluation of this pitch:
+{own_evaluation}
+
+Market Reality Research on this pitch:
+{market_brief}
+
+The committee is now deliberating privately -- the founder cannot hear
+this. Give your reaction as {name}, in AT MOST two sentences, in your
+own voice. You may acknowledge that a Shark with a different
+philosophy might see this differently, but only speak as yourself --
+do not write lines for the other Sharks.
+
+Respond with ONLY your two sentences (or fewer) of dialogue, nothing else.
