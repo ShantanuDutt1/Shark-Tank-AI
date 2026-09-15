@@ -5,7 +5,7 @@ releases must build toward what's described here; this document is
 not aspirational marketing copy — every claim below is either backed
 by code that exists today or explicitly marked as planned. Per-section
 status markers are kept current as each release ships (most recently
-updated for Release 0.6.1); the overall architecture itself remains
+updated for Release 0.8); the overall architecture itself remains
 locked.
 
 **Status legend used throughout this document:**
@@ -72,12 +72,13 @@ flowchart TB
         SessionState["session_state.py: st.session_state model"]
     end
 
-    subgraph Backend["Backend (Session Director + Shark intelligence implemented; Verification/Consensus still planned)"]
+    subgraph Backend["Backend (Session Director, Shark intelligence, Advanced Analysis, Verification, Consensus all implemented)"]
         SessionDirector["Session Director — orchestrator.py: SharkTankOrchestrator (implemented)"]
-        Moderator["Moderator Agent (deterministic narration implemented)"]
-        Sharks["Shark Agents (ask_question/evaluate_pitch/deliberate implemented, real LLM calls)"]
-        Verification["Verification Agent (planned; deterministic pass-through today)"]
-        Consensus["Consensus Engine (planned; deterministic placeholder today)"]
+        Moderator["Moderator Agent (deterministic narration + real validation/extraction implemented)"]
+        Sharks["Shark Agents (ask_question/evaluate_pitch/deliberate/negotiate implemented, real LLM calls)"]
+        FinancialAnalyst["Financial Analyst (implemented, Release 0.8 -- financial_analyst.py)"]
+        Verification["Verification Agent (implemented, Release 0.7, extended 0.8 -- verification_agent.py)"]
+        Consensus["Consensus Engine (implemented, Release 0.7, extended 0.8 -- consensus_engine.py)"]
         TurnController["turn_controller.py: TurnController (implemented)"]
     end
 
@@ -110,8 +111,12 @@ flowchart TB
     EventBus -.->|"published, not yet subscribed to by anything else"| SessionDirector
     SessionDirector --> Moderator
     SessionDirector --> Sharks
-    SessionDirector -.-> Verification
-    SessionDirector -.-> Consensus
+    SessionDirector --> FinancialAnalyst
+    SessionDirector --> Verification
+    SessionDirector --> Consensus
+    FinancialAnalyst --> BaseProvider
+    Verification --> BaseProvider
+    Consensus --> BaseProvider
 
     Sharks -.-> ADK
     Sharks -.-> MCP
@@ -134,7 +139,12 @@ see *Frontend* below. As of Release 0.5, `Sharks --> BaseProvider` is
 also a real, solid connection: every Shark's question, evaluation, and
 deliberation goes through it to a real `AnthropicProvider` call, with
 a deterministic fallback when that call is unconfigured or fails (see
-*Shark Agents* below).
+*Shark Agents* below). As of Release 0.7, `SessionDirector -->
+Verification`/`Consensus` and `Verification`/`Consensus --> BaseProvider`
+are likewise real, solid connections — see *Verification Agent* /
+*Consensus Engine* below. As of Release 0.8, `SessionDirector -->
+FinancialAnalyst` and `FinancialAnalyst --> BaseProvider` are real too
+— see *Advanced Financial Analysis* below.
 
 ## Frontend
 
@@ -192,8 +202,12 @@ investment intelligence real as of Release 0.5; Moderator validation/
 extraction, Market Reality Research, PII/prompt-injection defense, and
 Negotiation real as of Release 0.6; research planning, evidence
 provenance, and technical-failure-vs-genuine-decision semantics
-hardened in Release 0.6.1; formal cross-Shark Consensus/Verification
-and full multi-round negotiation still planned.**
+hardened in Release 0.6.1; a real Verification Agent and Consensus
+Engine as of Release 0.7; real, deterministic Advanced Financial
+Analysis (facts, calculations, scenarios, risk/upside, business-vs-deal
+quality) as of Release 0.8. Full multi-round negotiation still planned
+(Release 0.7 spec Part 21 / Release 0.8 spec Part 4 both keep the
+existing per-Shark negotiation flow structurally unchanged).**
 
 "Backend" here means everything that decides what the committee says
 and does: `agents/`, `orchestrator/`, `providers/`, `memory/`,
@@ -218,11 +232,16 @@ call is unconfigured or fails (see *Shark Agents* below).
 `agents/market_research_agent.py`'s `MarketResearchAgent` (new in
 Release 0.6) is real too, using both a `BaseProvider` (synthesis) and
 the new `BaseResearchProvider` (evidence-gathering) -- see *Market
-Reality Research* below. The classes that still raise
-`NotImplementedError` are exactly the ones still explicitly out of
-scope: `SharkTankOrchestrator.run_pitch` (full multi-round negotiation
-across an arbitrary agent list, Release 0.7) and every `BaseMemory`
-method (persistence, unscheduled).
+Reality Research* below. `agents/verification_agent.py`'s
+`VerificationAgent` and `orchestrator/consensus_engine.py`'s
+`ConsensusEngine` (both new in Release 0.7), and
+`agents/financial_analyst.py`'s `FinancialAnalyst` (new in Release
+0.8), are real too -- see *Verification Agent* / *Consensus Engine* /
+*Advanced Financial Analysis* below. The classes that still raise
+`NotImplementedError` are exactly the ones still
+explicitly out of scope: `SharkTankOrchestrator.run_pitch` (full
+multi-round negotiation across an arbitrary agent list, unscheduled)
+and every `BaseMemory` method (persistence, unscheduled).
 This is deliberate scaffolding, not an oversight — see *Session
 Director*, *Moderator Agent*, *Shark Agents*, and *LLM Provider Layer*
 below for exactly what each backend piece implements today versus what
@@ -262,14 +281,15 @@ release that implements it.
 ## Session Director
 
 **Status: Implemented for orchestration; investment intelligence real
-as of Release 0.5, Verification/Consensus/decision-making still
-planned.**
+as of Release 0.5; Verification/Consensus/decision-making real as of
+Release 0.7; Advanced Financial Analysis real as of Release 0.8.**
 
 The Session Director is the central coordinator that drives the **User
 Session State Machine** (see [`state_machines.md`](state_machines.md))
 forward: it decides when validation happens, when the Question Round
-starts, when to hand off to the Moderator, when to invoke Verification
-and the Consensus Engine, and when to publish
+starts, when to hand off to the Moderator, when to invoke Advanced
+Financial Analysis, Verification, and the Consensus Engine, and when
+to publish
 `InvestmentDecisionMade`. `SharkTankOrchestrator` in
 `orchestrator/orchestrator.py` (still the same class this
 responsibility was always documented as "growing into") owns exactly
@@ -286,15 +306,58 @@ real, provider-backed evaluation and deliberation happen
 `docs/agent_contract.md` -> *Error Handling*'s layering, is the place
 that catches a `providers.exceptions.ProviderError` from any Shark
 call and substitutes that Shark's own deterministic fallback — the
-Sharks themselves never decide how to degrade. The Session Director's
-Verification, Consensus, and investment-decision phases are still
-deterministic placeholders, not real intelligence (see Verification
-Agent and Consensus Engine below) -- Release 0.5 deliberately stopped
-short of building those (see its own spec section B17).
+Sharks themselves never decide how to degrade. As of Release 0.7, the
+same layering covers Verification and Consensus, extended in Release
+0.8 to also cover Advanced Financial Analysis:
+`_run_financial_analysis()`/`_run_verification()`/`_run_consensus()`
+each set phase, publish the matching `Started` event, run the real
+agent/engine, and publish `Completed`/`Reached` on success or `Failed`
+on a caught `ProviderError` — substituting `FinancialAnalyst
+.fallback_result()`/`VerificationAgent.fallback_result()`/
+`ConsensusEngine.fallback_result()` rather than stalling the session or
+fabricating a result (see *Advanced Financial Analysis* / *Verification
+Agent* / *Consensus Engine* below). `InvestmentDecisionMade`'s
+`deal_status` is derived from the real `ConsensusResult.recommendation`
+(`_deal_status_from_recommendation()`), not a fixed placeholder.
+
+**The founder's actual final outcome is computed separately from
+`deal_status` (Release 0.9.5 QA finding).** A Release 0.9.5 audit found
+that `_complete_session()` delivered a single, fixed closing line
+regardless of what actually happened -- never the three canonical
+outcome messages the product was always specified to show (spec Part
+20: "Sorry Little Fish, the Sharks were not impressed" /
+"...there was nothing for you here today" / "Congratulations, Little
+Fish. You will now swim with the Sharks!"). `_final_outcome()`
+classifies the session into `"no_interest"` / `"no_deal"` /
+`"deal_accepted"` from `self._final_offers` and
+`self._negotiation_responses` -- deliberately **not** from
+`ConsensusResult.recommendation`, since that is the committee's
+pre-Negotiation advisory opinion, and using it here would risk showing
+"Congratulations" merely because the technical pipeline completed
+(exactly what spec Part 20 forbids) even when Negotiation itself
+produced no deal, or the reverse. `ModeratorAgent.closing_message(outcome)`
+maps that classification to one of the three fixed lines
+(`agents/moderator_agent.py`'s `OUTCOME_NO_INTEREST`/`OUTCOME_NO_DEAL`/
+`OUTCOME_DEAL_ACCEPTED` constants) -- never model-generated text, so
+the exact required wording can never drift. See
+`tests/test_moderator_agent.py` and `tests/test_session_director.py`'s
+"Final outcome messages" section.
+
+**`final_offers` / `negotiation_responses` are now public
+properties**, added alongside `_final_outcome()` for the same Release
+0.9.5 QA pass: each Shark's own independent final position and
+negotiation result already existed as internal state (used by
+Negotiation and the Founder Feedback Report) but had no public
+accessor -- a caller could previously only recover an individual
+Shark's position by re-parsing conversation text. Both return a
+shallow copy, mirroring `conversation`'s existing copy-on-read
+behavior.
 
 ## Moderator Agent
 
-**Status: Real validation & extraction as of Release 0.6; narration unchanged since Release 0.4.**
+**Status: Real validation & extraction as of Release 0.6; narration
+unchanged since Release 0.4 except the closing message, which became
+outcome-aware in Release 0.9.5.**
 
 The Moderator facilitates turn-taking: announcing phase transitions,
 narrating what's happening while the committee researches or
@@ -327,8 +390,11 @@ Moderator must not become a safety/verification system beyond this.
 (provider-backed) as of Release 0.5, now grounded in external evidence
 as of Release 0.6. Negotiation is real as of Release 0.6. A technical
 evaluation/negotiation failure is distinguished from a genuine decision
-as of Release 0.6.1. Formal cross-Shark consensus integration remains
-planned.**
+as of Release 0.6.1. Every Shark's final evaluation is now
+independently audited (Verification Agent) and reconciled into a
+formal committee recommendation (Consensus Engine) as of Release 0.7 —
+see those sections below; each Shark's own reasoning and offer remain
+entirely its own.**
 
 Three investor roles, each a distinct venture capital investment
 philosophy rather than a domain specialty, are first-class values of
@@ -527,47 +593,398 @@ how many Sharks were interested), so it needed its own, simpler
 sequencing rather than stretching `TurnController`'s fixed-length
 assumptions to cover a different shape. Each Shark accepts, rejects,
 or modifies independently — there is no cross-Shark negotiation
-strategy or shared state between them. Multiple negotiation rounds,
-a counter-to-a-counter, and any final combined `NegotiationSession`
-outcome remain Release 0.6/0.7 boundary items, not implemented here
-(see below).
+strategy or shared state between them. Multiple negotiation rounds, a
+counter-to-a-counter, and any final combined `NegotiationSession`
+outcome remain unimplemented — Release 0.7 spec Part 21 explicitly
+keeps this flow structurally unchanged (see *Consensus Engine* below
+for what *did* change: the formal committee recommendation
+accompanying, not replacing, this per-Shark flow).
+
+## Advanced Financial Analysis
+
+**Status: Implemented as of Release 0.8.**
+
+`agents/financial_analyst.py::FinancialAnalyst` extracts financial
+facts (with explicit provenance) from the proposal and the founder's
+Question Round answers, and computes deterministic financial analysis
+from them: implied valuation, revenue/ARR multiples, margins, growth,
+burn, runway, dilution, downside/base/upside valuation scenarios, and
+structured risk/upside factors. It answers a materially different
+question than the Sharks or Consensus do: not "do the Sharks like this
+business?" but "what does the financial evidence actually say, and how
+sensitive is the valuation to the assumptions behind it?" It is not a
+Shark and never makes an investment decision — its output,
+`models.schemas.FinancialAnalysisResult`, is not an `Offer`, and (like
+`ModeratorAgent`/`MarketResearchAgent`/`VerificationAgent`) it does not
+subclass `BaseAgent` for that reason.
+
+**Ordering: runs between Internal Deliberation and Verification, not
+after Verification as Release 0.8's own conceptual pipeline diagram
+suggests.** This is a deliberate deviation, made because of an actual
+data dependency the diagram doesn't resolve: Release 0.8 spec Part 20
+requires Verification to be able to audit the financial analysis
+itself (its extracted facts' provenance, its calculations, its
+scenario assumptions) — which is only possible if the analysis already
+exists by the time Verification runs. Placing it after Verification,
+as the diagram's box order implies, would make that requirement
+impossible to satisfy. Shark independence is unaffected either way:
+Advanced Analysis runs after every Shark's own final evaluation and
+deliberation is already complete, and its output is never fed back
+into a Shark's own prompt (per spec Part 35's explicit "do not
+sacrifice three-Shark independence" regression requirement) --
+`agents/shark_agent.py` was not modified by this release. Its purpose
+per spec Part 19 ("a common analytical foundation the Sharks continue
+interpreting differently") is served by Consensus reconciling it
+alongside each Shark's already-independently-formed position, not by
+threading it into each Shark's own reasoning.
+
+**Two-step design**, matching every other real agent in this codebase:
+one LLM call (`prompts/financial_analysis.txt`) extracts facts and
+proposes scenario assumption *deltas* (never final numbers) and
+risk/upside factors; `utils/financial_calculations.py` -- pure,
+dependency-free functions -- then performs every actual calculation in
+Python, including applying the LLM's proposed scenario deltas to a
+base revenue figure and multiple. The LLM is never asked to do
+arithmetic itself (spec Part 16), bounding this release to exactly one
+new LLM call per session.
+
+**Financial facts carry explicit provenance**
+(`models.schemas.FINANCIAL_FACT_PROVENANCE`: `founder_stated` /
+`externally_reported` / `derived` / `analyst_inference` / `estimated`
+/ `missing`) -- a founder's *projection* (`"projected_revenue_next_year"`)
+is a structurally different `metric` name from *current* revenue
+(`"current_revenue"`), so a projection can never silently become the
+input to a current-revenue-based calculation. Deal terms
+(`ask_amount`/`equity_offered_pct`/`valuation`) are not re-extracted
+here -- they reuse the Moderator's own Release 0.6 extraction on
+`Pitch` directly, avoiding a duplicate extraction step.
+
+**Consistency checks are both deterministic and LLM-assisted**
+(`models.schemas.CONSISTENCY_ASSESSMENTS`: `consistent` /
+`potentially_inconsistent` / `materially_inconsistent` /
+`insufficient_information` -- never "fraudulent"). Deterministic checks
+(`FinancialAnalyst._run_sanity_checks()`) compare a founder-stated
+figure against the same figure computed independently from other
+stated inputs (e.g. a stated gross margin vs. one computed from
+revenue/COGS), and flag out-of-range percentages or negative values
+where they're logically invalid. The synthesis LLM call separately
+identifies issues that need narrative judgment (e.g. a projection
+referenced elsewhere as if it were historical fact) -- both populate
+the same `ConsistencyFinding` list.
+
+**Scenarios are analytical, not forecasts** (spec Part 12): the `base`
+scenario reuses the existing Market Reality-informed valuation range
+(Release 0.6) as its anchor; `downside`/`upside` apply the LLM's
+proposed revenue-growth delta to the extracted current revenue via
+`utils.financial_calculations.apply_growth_delta()`, then multiply by
+the same revenue multiple already computed for `revenue_multiple` --
+both steps are Python arithmetic. Every scenario's
+`assumption_basis` (`models.schemas.ASSUMPTION_SOURCES`:
+`founder_provided` / `market_evidence` / `analyst_assumption` /
+`insufficient_evidence`) makes explicit where its assumption actually
+came from; a scenario with no computable base stays
+`insufficient_evidence` with `low`/`high` left `None`, never a
+fabricated number.
+
+**No fake precision** (spec Part 33): the UI rounds every valuation
+figure before display (`ui/proposal.py::_format_currency_range()` --
+"$2.5M-$3.5M", never "$3,184,721"), and the synthesis prompt
+explicitly forbids a falsely precise percentage or dollar figure.
+
+Like every other real agent in this codebase, `analyze()` *raises* a
+`providers.exceptions.ProviderError` on failure; the Session Director
+catches it at the `_run_financial_analysis()` call site and
+substitutes `FinancialAnalyst.fallback_result()`
+(`analysis_status="unavailable"`) -- publishing `AdvancedAnalysisFailed`
+instead of `AdvancedAnalysisCompleted`, and the session still proceeds
+to Verification/Consensus with an honest "no analysis was possible"
+result rather than stalling or fabricating one.
 
 ## Verification Agent
 
-**Status: Planned. No interface exists today.**
+**Status: Implemented as of Release 0.7, extended in Release 0.8 to
+also audit the Advanced Financial Analysis.**
 
-The Verification Agent checks the committee's internal deliberation
-for consistency and soundness before Consensus begins — it corresponds
-directly to the `VERIFICATION` phase already modeled in
-`SessionPhase`. No `VerificationAgent` class exists yet; when it does,
-it must implement the same contract defined in
-[`agent_contract.md`](agent_contract.md) as every other agent, so the
-Session Director can treat it uniformly. As of Release 0.5, the
-Session Director still passes through `VERIFICATION` deterministically
-(it always "passes") purely so the state machine can reach
-`SESSION_COMPLETE` — this remains an explicit placeholder, not a
-verification implementation, even though the deliberation content it
-would be verifying is now real (see *Shark Agents* above).
+`agents/verification_agent.py::VerificationAgent` independently audits
+whether the three Sharks' *final* reasoning (their real `Offer`s from
+Internal Deliberation) is actually supported by the proposal, the
+founder's Question Round answers, and the Market Reality Brief — it
+runs once per session, during `VERIFICATION`, strictly after every
+Shark's own deliberation completes and strictly before `CONSENSUS`
+begins (Release 0.7 spec Part 22: this ordering is load-bearing —
+Verification never feeds back into a Shark's own reasoning, preserving
+Shark independence). It does **not** subclass `BaseAgent`, for the
+same reason `ModeratorAgent`/`MarketResearchAgent` don't
+([`agent_contract.md`](agent_contract.md)): its output,
+`models.schemas.VerificationResult`, is not an `Offer`, and it never
+makes an investment decision or produces one itself.
+
+For each Shark, the audit checks: whether material claims in that
+Shark's rationale are supported by the proposal/founder answers,
+externally reported by the Market Reality Brief, a correctly derived
+calculation, a reasonable inference, or unsupported; whether the
+Shark's reasoning accurately reflects what the founder actually said
+(e.g. a stated *projection* treated as *current* revenue); and whether
+any arithmetic the Shark relied on (e.g. an implied valuation from
+investment/equity) is actually consistent with the inputs available.
+Every one of `VerificationFinding.assessment`'s values reuses
+`models.schemas.CLAIM_STATUSES` (`supported` /
+`partially_supported` / `unsupported` / `contradicted` /
+`insufficient_evidence` / `not_externally_verifiable`, Release
+0.6.1) rather than a second, parallel vocabulary — absence of evidence
+is never presented as proof a claim is false. The audit explicitly
+does *not* try to force the three Sharks to agree: legitimate
+disagreement from applying different risk philosophies to the same
+evidence is left alone; only a claim that is actually unsupported or
+contradicted becomes a finding (Release 0.7 spec Part 9).
+
+Every input — the pitch, the founder's answers, the Market Reality
+Brief, *the Sharks' own generated rationale text*, and (Release 0.8)
+the Advanced Financial Analysis's own output — is wrapped as untrusted
+content (`agents.prompt_safety.wrap_untrusted()`) before reaching the
+audit prompt (`prompts/verification.txt`): a Shark's own output, or
+the Financial Analyst's, could in principle contain manipulated or
+instruction-like text, and the Verification Agent must not treat
+either any differently than founder or web content (Release 0.7 spec
+Part 17).
+
+**Release 0.8 extension:** `verify()` takes an optional
+`financial_analysis: models.schemas.FinancialAnalysisResult` parameter.
+When given, the audit also covers whether the analysis's extracted
+facts' provenance labels are plausible, whether its deterministic
+calculations are consistent with the facts it extracted, and whether
+its scenario assumptions are actually traceable to the source they
+claim. No new `VerificationResult` fields were added for this —
+findings land in the existing `financial_issues`/`valuation_issues`
+lists, per spec Part 20's explicit instruction not to duplicate the
+Verification system.
+
+Like every other real agent in this codebase, `verify()` *raises* a
+`providers.exceptions.ProviderError` on failure; the Session Director
+catches it at the `_run_verification()` call site and substitutes
+`VerificationAgent.fallback_result()`
+(`VerificationResult.verification_status="unavailable"`) rather than
+stalling the session or fabricating an audit — publishing
+`VerificationFailed` instead of `VerificationCompleted`. A completed
+verification that simply finds nothing wrong is a different, valid
+outcome from an unavailable one; the two must never be confused (spec
+Part 24).
+
+**Known limitation, not a hidden gap:** a critical Verification
+finding does not currently re-route the session back to Internal
+Deliberation for a retry — `docs/state_machines.md` § Rule 3's
+documented deviation explains why this was deliberately left for a
+future release rather than added here. A severe finding instead flows
+*forward* into the Consensus Engine's reconciliation below.
 
 ## Consensus Engine
 
-**Status: Planned. No interface exists today.**
+**Status: Implemented as of Release 0.7, extended in Release 0.8 with
+business-quality/deal-quality/financial-health reconciliation.**
 
-The Consensus Engine aggregates the Shark Agents' individual
-positions — offers, rejections, and conditions — into the single
-`InvestmentDecisionMade` outcome, corresponding to the `CONSENSUS` and
-`INVESTMENT_DECISION` phases. It is expected to live alongside the
-Session Director in `orchestrator/`, operating on the `Offer` and
-`NegotiationSession` models already defined in `models/schemas.py`.
-No implementation exists yet. As of Release 0.5, each Shark's real
-`Offer` is computed (see *Shark Agents* above) and a factual tally of
-how many Sharks were interested is included in the `DebateFinished`/
-`ConsensusReached` event payloads, but the Session Director still
-publishes a fixed `InvestmentDecisionMade` with
-`deal_status=DealStatus.PENDING` and no amount/equity — real
-aggregation, weighting, and a genuine final decision remain Release
-0.7 scope; Release 0.5 deliberately does not pretend otherwise
-(Release 0.5 spec section B17).
+`orchestrator/consensus_engine.py::ConsensusEngine` reconciles the
+three Sharks' final positions, their deliberation, the Market Reality
+Brief, the Advanced Financial Analysis (Release 0.8), and the
+Verification Agent's findings into one formal
+`models.schemas.ConsensusResult` — corresponding to the `CONSENSUS`
+phase, and feeding the real `deal_status` on `InvestmentDecisionMade`
+(`INVESTMENT_DECISION` phase) (Release 0.4-0.6.1: always a fixed
+`DealStatus.PENDING` placeholder). It lives in `orchestrator/`, not
+`agents/`, per this document's own long-standing "Future expansion"
+note under *Session Director* and
+[`folder_structure.md`](folder_structure.md) — it is deliberately
+**not** a fourth Shark or another LLM persona: it has no investment
+philosophy of its own, never independently evaluates the pitch, and
+only reconciles already-produced, structured committee output.
+
+**Business quality vs. deal quality (Release 0.8 spec Part 15):**
+`ConsensusResult` distinguishes `business_quality` (how good the
+underlying business is, independent of terms) from `deal_quality`
+(how attractive an investment this is *at the proposed terms*) —both
+one of `models.schemas.QUALITY_RATINGS` (`strong` / `moderate` /
+`weak` / `insufficient_evidence`, deliberately coarse, never a numeric
+score dressed up as precision). `recommendation` tracks deal quality,
+not business quality alone: an excellent business at an excessive
+valuation should drive `deal_quality` down and `recommendation` toward
+`do_not_invest`/`invest_with_conditions` even when `business_quality`
+is `strong`. `financial_health` (also a `QUALITY_RATINGS` value)
+summarizes the Advanced Financial Analysis at the level a founder-facing
+summary needs; `growth_profile`/`risk_profile`/`scenario_summary` are
+short free-text fields rather than bounded enums, since a defensible
+growth/risk/scenario read has too many legitimate framings to force
+into a fixed vocabulary.
+
+**Explicitly not a majority vote (Release 0.7 spec Part 12):** the
+engine does not derive its recommendation by counting how many Sharks
+were `interested`. A single Shark's well-supported concern — or a
+Verification Agent finding that undermines the majority's reasoning —
+can legitimately outweigh a 2-1 split; conversely a minority
+high-upside read may be worth weighing even against two more cautious
+Sharks. This is enforced structurally, not just by prompt instruction:
+`ConsensusEngine._compute_facts()` hands the LLM the deterministic
+interested/declined tally and per-Shark implied valuations as given
+facts (Release 0.7 spec Part 16: "use the LLM for
+interpretation/reconciliation, not arithmetic that can safely be
+deterministic" — the recommendation itself is never computed from
+that tally in Python).
+
+`ConsensusResult.recommendation` is one of `models.schemas
+.CONSENSUS_RECOMMENDATIONS`: `invest` / `invest_with_conditions` /
+`do_not_invest` / `insufficient_evidence` / `unavailable`.
+`"insufficient_evidence"` is a genuine conclusion the engine reached
+after actually running (the evidence and Shark input don't support a
+confident recommendation either way); `"unavailable"` is reserved
+exclusively for `ConsensusEngine.fallback_result()` — a real LLM
+response is not permitted to self-report `"unavailable"` (rejected as
+an invalid response and treated as a parsing failure), mirroring
+`NegotiationResponse.decision`'s `"unavailable"` value established in
+Release 0.6.1. `recommended_valuation_range` reuses the existing
+`models.schemas.ValuationEstimate` (Release 0.6); `recommended_investment_range`
+/ `recommended_equity_range` use a new, minimal `NumericRange` model —
+all three stay null/`insufficient_evidence` rather than a fabricated
+number when the evidence doesn't support a range, exactly like
+`ValuationEstimate` already did.
+
+Like every other real agent/engine in this codebase, `reconcile()`
+*raises* a `providers.exceptions.ProviderError` on failure; the
+Session Director catches it at the `_run_consensus()` call site and
+substitutes `ConsensusEngine.fallback_result()`
+(`recommendation="unavailable"`) — publishing `ConsensusFailed`
+instead of `ConsensusReached`, and mapping to `DealStatus.PENDING` on
+`InvestmentDecisionMade` (never `OFFERED`/`REJECTED`) so a technical
+failure can never be misread as a real decision.
+
+**Unchanged by this addition:** each Shark's own real offer is still
+independently announced (`_announce_offers()`) and still independently
+negotiated (`NegotiationController`) exactly as in Release 0.6 —
+Consensus produces a formal *committee* recommendation alongside the
+individual offers, it does not gate, block, or replace them (Release
+0.7 spec Part 21).
+
+## Founder Feedback Report
+
+**Status: Implemented as of Release 0.9.**
+
+`agents/founder_feedback_agent.py::FounderFeedbackAgent` produces a
+`models.schemas.FounderFeedbackReport`: a two-page, critical,
+evidence-grounded synthesis of the *entire* simulation, delivered to
+the founder as an in-memory PDF at the end of every session. It
+answers a question none of the existing components answer — "what
+should I improve before pitching real investors?" — and is
+deliberately **not** a fourth Shark, not a second Consensus Engine, and
+not a generic startup-advice generator: it makes no investment
+decision, has no philosophy of its own, and runs strictly after the
+final outcome (offers, negotiation, Verification, Consensus) is
+already determined, so it cannot affect any of them even in principle.
+For the same reason every other non-decision-making component in this
+codebase is not a `BaseAgent` subclass (`ModeratorAgent`,
+`MarketResearchAgent`, `VerificationAgent`, `FinancialAnalyst`),
+`FounderFeedbackAgent` isn't one either — see
+[`agent_contract.md`](agent_contract.md).
+
+**Grounded in real investor-evaluation research (spec Part 4):**
+rather than a generic checklist, the report's prompt
+(`prompts/founder_feedback.txt`) is built from
+[`investor_evaluation_framework.md`](investor_evaluation_framework.md)
+— a document assembled from real, cited research (Y Combinator,
+Techstars, Sequoia, 500 Global, a16z, CRV, and others) into how early-
+stage investors actually evaluate startups across market opportunity,
+team, traction, unit economics, defensibility, and more, including
+stage-aware benchmarks. The framework document is *general* evidence
+about how investors evaluate companies; the report itself only ever
+draws its *specific* conclusions about this founder's pitch from this
+session's own evidence — the two are never conflated (spec Part 31).
+
+**Synthesizes the whole pipeline, not just the Sharks' offers:** the
+agent's prompt wraps, as separately labeled untrusted blocks
+(`agents.prompt_safety.wrap_untrusted()`, exactly like every other real
+agent), the founder's proposal, the Moderator's `ProposalValidationResult`,
+the Market Reality Brief, the full Q&A conversation transcript, every
+Shark's final `Offer`, every `NegotiationResponse`, the
+`VerificationResult`, the `ConsensusResult`, and the
+`FinancialAnalysisResult` — so it can surface a discrepancy no
+individual Shark caught (e.g. a market-size claim Verification flagged
+as unsupported but every Shark otherwise accepted). Two of these
+inputs — `ProposalValidationResult` and the per-Shark
+`NegotiationResponse` objects — were previously discarded or only
+rendered to chat text by the Session Director; Release 0.9 added
+`SharkTankOrchestrator._validation_result` and
+`SharkTankOrchestrator._negotiation_responses` as new internal state,
+populated at their existing production call sites, specifically so the
+report can use them (see `tests/test_session_director.py`
+`test_founder_report_reflects_validation_and_negotiation_inputs`).
+
+**No new `SessionPhase` (deliberate deviation from a literal reading of
+the spec's pipeline diagram):** report generation runs entirely inside
+`SharkTankOrchestrator._complete_session()` — after negotiation has
+concluded (or immediately, if no Shark made an offer) and before the
+session's closing message and `SessionPhase.SESSION_COMPLETE`. The
+spec explicitly discourages adding state transitions for cosmetic
+reasons, and the report is generated once the simulation's
+interactive/visible lifecycle is already over — there is no
+turn-by-turn founder experience to represent with a phase. Full Event
+Bus visibility is preserved anyway via three new typed events
+(`events.FounderReportStarted` / `FounderReportCompleted` /
+`FounderReportFailed`), fired synchronously around the real
+`FounderFeedbackAgent.generate()` call, mirroring every other
+`_run_*()` finalization method's shape (`_run_verification()`,
+`_run_consensus()`, `_run_financial_analysis()`).
+
+**Failure semantics (spec Part 22):** `generate()` *raises* a
+`providers.exceptions.ProviderError` on failure, exactly like every
+other real agent; `_run_founder_report()` catches it and substitutes
+`FounderFeedbackAgent.fallback_result()`
+(`report_status="unavailable"`), publishing `FounderReportFailed`
+instead of `FounderReportCompleted`. A report failure never stalls or
+corrupts session completion, and is never confused with a genuine
+outcome (a Shark rejection, `do_not_invest`, or
+`insufficient_evidence`) — those are conclusions the *rest* of the
+pipeline can reach independently of whether the report itself could be
+generated.
+
+**"Background" means no exposed reasoning, not literal
+concurrency (spec Part 19):** like the rest of this codebase (see
+*Google ADK*/*MCP* below), Release 0.9 introduces no
+threading/async — `_complete_session()` runs the report generation
+synchronously, in-process, like every other step. "Background" here
+means the founder never sees a turn-by-turn generation process, partial
+output, or any internal reasoning; the report simply appears, complete
+or honestly marked `unavailable`, once the simulation ends.
+
+**PDF rendering, not generation, is fully separate:**
+`utils/report_rendering.py::render_founder_report_pdf()` is pure
+rendering — it takes an already-produced `FounderFeedbackReport` and
+returns PDF bytes via `reportlab.platypus`, entirely in memory
+(`io.BytesIO`), with zero filesystem writes and no provider calls of
+its own. `ui/proposal.py::_render_founder_report_section()` calls it
+on every Streamlit rerun once `SessionPhase.SESSION_COMPLETE` is
+reached, rather than caching bytes on the director — cheap and safe to
+redo, and it keeps the one LLM call (`generate()`, done once by the
+orchestrator) cleanly separate from formatting. Every report field is
+HTML-escaped (`xml.sax.saxutils.escape()`) before being placed inside a
+`reportlab` `Paragraph`, the same class of fix as `ui/proposal.py`'s
+`html.escape()` XSS fix from Release 0.4.1, since `reportlab` also
+interprets a small HTML-like markup language.
+
+**Session isolation requires no new cleanup code:**
+`ui/controls.py::_handle_start_session()` already builds a brand-new
+`SharkTankOrchestrator` instance for every "Start Session" click, and
+`ui/session_state.py::clear_active_session()` /
+`reset_session_state()` already discard the old one — so
+`SharkTankOrchestrator.founder_report` (a new instance attribute,
+`None` until generated) is automatically isolated per session with no
+additional code, verified directly by reading those two files rather
+than assumed. See `tests/test_session_director.py
+::test_founder_report_is_none_before_completion` and
+`tests/test_app_ui.py
+::test_founder_report_isolated_across_sessions_after_reset`.
+
+**Exact required disclaimer:** every report, including an `unavailable`
+one, carries `models.schemas.FOUNDER_REPORT_DISCLAIMER` verbatim —
+`_build_report()` never lets the LLM's own output override it (the
+`disclaimer` field on `FounderFeedbackReport` defaults to the module
+constant and the parsed JSON's own disclaimer-like text, if any, is
+simply never read).
 
 ## Memory
 
@@ -694,20 +1111,35 @@ is exhaustively unit-tested. This trades recall (it will miss PII a
 more sophisticated detector would catch) for precision and
 predictability -- it is not a comprehensive PII scrubber, and
 non-identifying business content is left untouched by design.
+Release 0.8's `FinancialAnalyst` introduces no new PII surface: its
+inputs are the already-redacted `pitch.description` and conversation
+history, and its own extracted `financial_facts` are business/financial
+data points (revenue, margins, burn) by construction, not personal
+information -- no additional redaction pass was needed or added for
+it.
 
 **Prompt-injection defense** (`agents/prompt_safety.py`): every piece
 of content that did not originate from this codebase's own prompt
 templates -- the founder's pitch description, their Question Round
-answers, a negotiation counter-offer, and (as of Market Reality
-Research) retrieved web content -- is wrapped in an explicit
-untrusted-content delimiter (`wrap_untrusted()`) with an instruction
-never to follow text that reads like a command, before being included
-in any prompt sent to `SharkAgent`, `ModeratorAgent`, or
-`MarketResearchAgent`. `looks_like_injection_attempt()` is a secondary,
+answers, a negotiation counter-offer, retrieved web content (as of
+Market Reality Research), and (as of Release 0.7) a Shark's own
+generated rationale text -- is wrapped in an explicit untrusted-content
+delimiter (`wrap_untrusted()`) with an instruction never to follow text
+that reads like a command, before being included in any prompt sent to
+`SharkAgent`, `ModeratorAgent`, `MarketResearchAgent`,
+`VerificationAgent`, `ConsensusEngine`, or (Release 0.8)
+`FinancialAnalyst`. `looks_like_injection_attempt()` is a secondary,
 best-effort pattern filter for logging/observability only -- nothing
 in this codebase currently blocks a message based on its result, per
 Release 0.6 spec Part F ("use filtering as an additional defense, not
-as the primary defense").
+as the primary defense"). Release 0.9's `FounderFeedbackAgent` extends
+this same treatment to every input it synthesizes -- including two
+kinds of content no earlier agent's prompt carried directly:
+Verification's findings and Consensus's own recommendation text, each
+wrapped and labeled (`verification_findings`, `consensus_result`) like
+every other input, since by the time the report runs, those are also
+just more model-generated text the report must treat as data, not
+instruction.
 
 **External webpage content** retrieved during Market Reality Research
 is treated with the same untrusted-content wrapping as founder
@@ -782,6 +1214,18 @@ response is handled independently, exactly as in Release 0.5/0.6; only
 the *labeling* of a failure changed in 0.6.1, not the degradation
 architecture itself.
 
+Release 0.9 extends the same pattern one step further:
+`models.schemas.FounderFeedbackReport.report_status` is `"completed"`
+for a real synthesis or `"unavailable"` only for
+`FounderFeedbackAgent.fallback_result()` -- never silently substituted
+with fabricated feedback, and never confused with a genuine simulation
+outcome (a Shark decline, `do_not_invest`, or `insufficient_evidence`
+are all conclusions the rest of the pipeline reaches independently of
+whether the report itself could be generated). A report failure fires
+`events.FounderReportFailed` instead of `FounderReportCompleted` and
+does not stall or alter `SessionPhase.SESSION_COMPLETE` -- see
+*Founder Feedback Report* above.
+
 ## Agent Skills
 
 **Status: Planned. No implementation exists today.**
@@ -818,20 +1262,39 @@ each release inventing its own integration points:
 1. **`ui/session_state.py` → Event Bus bridge.** The point where
    direct session-state mutation (today) is replaced by publishing
    events and reacting to subscribed events (future).
-2. **`orchestrator/orchestrator.py` → Session Director + Consensus
-   Engine.** `SharkTankOrchestrator` is the seed both responsibilities
-   will grow from or alongside.
-3. **`agents/` → Verification Agent.** A new agent class implementing
-   the contract in `agent_contract.md`, parallel to `SharkAgent`.
+2. **Verification-failure retry loop.** `docs/state_machines.md` §
+   Rule 3's `Verification → Internal Deliberation` bounce-back path
+   remains unimplemented as of Release 0.8 — a future release's
+   extension point on `orchestrator/orchestrator.py::_run_verification()`
+   / `_run_deliberation_pipeline()`, bounded by a retry counter per
+   that rule.
+3. **`orchestrator/orchestrator.py::run_pitch()` → full multi-round
+   negotiation.** Still `NotImplementedError`; Release 0.6/0.7/0.8 all
+   kept the existing one-counter-per-Shark `NegotiationController`
+   flow unchanged instead.
 4. **`providers/` → Gemini/Ollama/ADK/MCP.** New provider
    implementations closing the known gap above, plus the eventual home
    for ADK-managed execution and MCP tool access.
 5. **`memory/` → SQLite-backed store.** A new concrete `BaseMemory`
    implementation alongside `InMemoryStore`, selected via the existing
    `memory_backend` setting.
-6. **`prompts/` → Verification and Consensus prompt templates.**
-   Additional `.txt` templates alongside the existing three, following
-   the same `prompts/loader.py` convention.
+6. **`docs/agent_personas.md` §12.2 Unanimous Rejection.** No distinct
+   signal exists in `ConsensusResult` for "all three Sharks
+   independently concluded the pitch is impossible/fraudulent" versus
+   an ordinary `do_not_invest` recommendation — see
+   `docs/release_backlog.md`.
+
+Delivered extension points, no longer future: `agents/` gained
+`VerificationAgent` (Release 0.7), `FinancialAnalyst` (Release
+0.8), and `FounderFeedbackAgent` (Release 0.9), all following
+`agent_contract.md`'s contract, per the same non-`BaseAgent` exception
+`ModeratorAgent`/`MarketResearchAgent` already established;
+`orchestrator/` gained `consensus_engine.py::ConsensusEngine` (Release
+0.7, extended 0.8); `prompts/` gained `verification.txt`/`consensus.txt`
+(Release 0.7), `financial_analysis.txt` (Release 0.8), and
+`founder_feedback.txt` (Release 0.9), following the same
+`prompts/loader.py` convention as every other template; `utils/`
+gained `financial_calculations.py` (Release 0.8).
 
 No new top-level folders are introduced by this document. Any future
 release that needs one must update

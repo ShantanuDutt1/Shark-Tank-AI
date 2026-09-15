@@ -31,28 +31,39 @@ ownership and boundaries, not behavior.
 
 ## `agents/`
 
-**Contents:** `base_agent.py` (interface), `shark_agent.py`
-(`SharkAgent`: `ask_question()` implemented, `evaluate_pitch()` still a
-placeholder), `moderator_agent.py` (`ModeratorAgent`, added Release
-0.4 — does not subclass `BaseAgent`; see its docstring and
-`agent_contract.md`).
+**Contents (current as of Release 0.9):** `base_agent.py` (`BaseAgent`
+interface), `shark_agent.py` (`SharkAgent` — real
+`ask_question()`/`evaluate_pitch()`/`deliberate()`/`negotiate()`),
+`moderator_agent.py` (`ModeratorAgent` — real
+`validate_and_extract()` plus deterministic narration; does not
+subclass `BaseAgent`), `market_research_agent.py`
+(`MarketResearchAgent`, Release 0.6), `research_planner.py`
+(`build_research_plan()`, Release 0.6.1), `verification_agent.py`
+(`VerificationAgent`, Release 0.7 — also does not subclass
+`BaseAgent`, for the same reason as `ModeratorAgent`/
+`MarketResearchAgent`), `financial_analyst.py` (`FinancialAnalyst`,
+Release 0.8 — extracts financial facts and computes deterministic
+financial analysis; also does not subclass `BaseAgent`, same reason),
+`founder_feedback_agent.py` (`FounderFeedbackAgent`, Release 0.9 —
+synthesizes the full simulation into a `FounderFeedbackReport`; also
+does not subclass `BaseAgent`, same reason), `prompt_formatting.py`
+(Release 0.7 — shared prompt-rendering helpers extracted from
+`shark_agent.py`, reused by `verification_agent.py`,
+`financial_analyst.py`, `founder_feedback_agent.py`, and
+`orchestrator/consensus_engine.py`), `prompt_safety.py` (Release 0.6).
 
-- **Purpose:** Houses every agent that participates in a session — the
-  Shark Agent and, as of Release 0.4, the Moderator; in the future,
-  the Verification Agent and any other agent described in
-  `architecture.md`.
+- **Purpose:** Houses every agent that participates in a session.
 - **Responsibility:** Every class here must implement the contract
   defined in [`agent_contract.md`](agent_contract.md), with the
-  documented exception of `ModeratorAgent` (a facilitator, not an
-  investment-evaluating agent). Agents may depend on `models/`,
-  `providers/`, and `prompts/`; they must not depend on `ui/`.
-  Current state: `BaseAgent.evaluate_pitch()` and
-  `SharkAgent.evaluate_pitch()` both still raise `NotImplementedError`;
-  `SharkAgent.ask_question()` and every `ModeratorAgent` method are
-  implemented (as deterministic placeholders — no LLM call yet).
+  documented exception of `ModeratorAgent`/`MarketResearchAgent`/
+  `VerificationAgent`/`FinancialAnalyst`/`FounderFeedbackAgent` (none
+  evaluates a pitch and produces an `Offer`). Agents may depend on
+  `models/`, `providers/`, `utils/`, and `prompts/`; they must not
+  depend on `ui/`.
 - **Ownership:** Backend/agent-logic work.
-- **Future expansion:** A `VerificationAgent` class is expected here,
-  following the same contract as `SharkAgent`.
+- **Future expansion:** `docs/state_machines.md` § Rule 3's
+  Verification-failure retry path remains unimplemented; see
+  `docs/architecture.md` -> Future Extension Points.
 
 ## `config/`
 
@@ -92,7 +103,11 @@ placeholder), `moderator_agent.py` (`ModeratorAgent`, added Release
 
 **Contents:** `architecture.md`, `folder_structure.md`,
 `state_machines.md`, `event_catalog.md`, `agent_contract.md`,
-`coding_standards.md`, `release_log.md`, `getting_started.md`.
+`agent_personas.md`, `coding_standards.md`, `release_log.md`,
+`release_backlog.md`, `getting_started.md`,
+`investor_evaluation_framework.md` (Release 0.9 — real, cited research
+underlying the Founder Feedback Report's prompt; see
+`architecture.md` → *Founder Feedback Report*).
 
 - **Purpose:** All project documentation.
 - **Responsibility:** `architecture.md` is the single source of truth
@@ -124,11 +139,19 @@ placeholder), `moderator_agent.py` (`ModeratorAgent`, added Release
 
 ## `models/`
 
-**Contents:** `schemas.py` (pydantic domain models: `Pitch`,
-`SharkPersona`, `Offer`, `NegotiationSession`, `DealStatus`,
-`ConversationMessage`, `TurnState` — the latter two added in Release
-0.4), `enums.py` (`SessionPhase`, `LLMProvider`, `SpeakerRole`, and
-their label/ordering dictionaries).
+**Contents (current as of Release 0.9):** `schemas.py` (pydantic
+domain models: `Pitch`, `SharkPersona`, `Offer`, `NegotiationSession`,
+`DealStatus`, `ConversationMessage`, `TurnState`, `MarketRealityBrief`
+and friends (Release 0.6), `VerificationResult`/`ConsensusResult` and
+friends (Release 0.7), `FinancialAnalysisResult` and friends (Release
+0.8 — `FinancialFact`, `ConsistencyFinding`, `RiskFactor`,
+`UpsideFactor`, `ScenarioValuation`), `FounderFeedbackReport` and
+friends (Release 0.9 — `InvestorReadinessDimension`, `ActionItem`,
+`ReportEvidenceRef`)), `enums.py` (`SessionPhase` (twelve phases,
+unchanged since Release 0.8 — the Founder Feedback Report deliberately
+did not add a thirteenth; see `architecture.md` → *Founder Feedback
+Report*), `LLMProvider`, `SpeakerRole`, and their label/ordering
+dictionaries).
 
 - **Purpose:** Shared data shapes and vocabulary used by every other
   package — the UI, agents, orchestrator, and memory all reference the
@@ -139,27 +162,32 @@ their label/ordering dictionaries).
 - **Ownership:** Shared; changes here affect every other package, so
   they should be made deliberately and reviewed against
   `architecture.md` and `state_machines.md` for consistency.
-- **Future expansion:** New domain models as new backend concepts
-  (Verification results, Consensus outcomes) are implemented. New
-  enum values must never be added without updating
-  `state_machines.md` and `event_catalog.md` to match.
+- **Future expansion:** New enum values must never be added without
+  updating `state_machines.md` and `event_catalog.md` to match.
 
 ## `orchestrator/`
 
-**Contents:** `orchestrator.py` (`SharkTankOrchestrator` — the Session
-Director; `run_pitch()` still a placeholder, `start_session()` /
-`submit_founder_response()` / `end_session()` implemented in Release
-0.4), `event_bus.py` (`EventBus`, minimal synchronous pub/sub),
-`events.py` (a typed dataclass per `event_catalog.md` message),
-`turn_controller.py` (`TurnController`, the fixed Shark/Founder
-speaking-order sequencer), `exceptions.py` (`SessionDirectorError`,
+**Contents (current as of Release 0.9):** `orchestrator.py`
+(`SharkTankOrchestrator` — the Session Director; `run_pitch()` still a
+placeholder, `start_session()` / `submit_founder_response()` /
+`end_session()` implemented; as of Release 0.9, `_complete_session()`
+also generates the session's `FounderFeedbackReport` as its first
+step, exposed via the new `founder_report` property), `event_bus.py`
+(`EventBus`, minimal
+synchronous pub/sub), `events.py` (a typed dataclass per
+`event_catalog.md` message), `turn_controller.py` (`TurnController`,
+the fixed Shark/Founder speaking-order sequencer),
+`negotiation_controller.py` (`NegotiationController`, Release 0.6),
+`consensus_engine.py` (`ConsensusEngine`, Release 0.7, extended in
+Release 0.8 with business/deal-quality reconciliation — real
+reconciliation of Shark positions, financial analysis, and
+Verification findings; not an `agents/` class, since it has no
+investment philosophy and never evaluates a pitch itself, see
+`agent_contract.md`), `exceptions.py` (`SessionDirectorError`,
 `InvalidTurnError`).
 
 - **Purpose:** Coordinates multiple agents for a single session — the
-  Session Director described in `architecture.md`. The Consensus
-  Engine's real aggregation logic is still planned; Release 0.4's
-  Session Director only takes an explicit placeholder path through
-  that phase (see `orchestrator.py`'s `_run_deliberation_pipeline()`).
+  Session Director described in `architecture.md`.
 - **Responsibility:** Depends on `agents/`, `models/`, `utils/`, and
   (in the future) `memory/`; must never depend on `ui/`. Owns the
   *sequencing* of agent calls and phase transitions, not the agents'
@@ -167,20 +195,25 @@ speaking-order sequencer), `exceptions.py` (`SessionDirectorError`,
   Current state: `run_pitch()` raises `NotImplementedError`; the
   Session Director surface (`start_session()`,
   `submit_founder_response()`, `end_session()`, and the `phase()` /
-  `conversation()` / `awaiting_founder_response()` properties) is
-  implemented.
+  `conversation()` / `market_brief()` / `financial_analysis()` /
+  `verification_result()` / `consensus_result()` /
+  `awaiting_founder_response()` properties) is implemented.
 - **Ownership:** Backend/orchestration work.
-- **Future expansion:** A `VerificationAgent`-backed real verification
-  step and a real Consensus Engine aggregation step, both plugged into
-  `_run_deliberation_pipeline()`'s existing placeholder extension
-  points, and driving the Agent Orchestration State Machine defined in
-  `state_machines.md`.
+- **Future expansion:** `docs/state_machines.md` § Rule 3's
+  Verification-failure retry path (bounded bounce-back to Internal
+  Deliberation) remains unimplemented; driving the Agent Orchestration
+  State Machine defined in `state_machines.md` also remains planned.
 
 ## `prompts/`
 
-**Contents:** `loader.py` (`load_prompt(name)`),
-`shark_persona_system.txt`, `pitch_analysis.txt`,
-`negotiation_round.txt`.
+**Contents (current as of Release 0.9):** `loader.py`
+(`load_prompt(name)`), `shark_persona_system.txt`,
+`pitch_analysis.txt`, `adaptive_question.txt`, `deliberation.txt`,
+`negotiation.txt`, `proposal_validation.txt`,
+`market_research_search.txt`, `market_research_synthesis.txt`,
+`verification.txt` (Release 0.7), `consensus.txt` (Release 0.7),
+`financial_analysis.txt` (Release 0.8), `founder_feedback.txt`
+(Release 0.9).
 
 - **Purpose:** Keeps prompt text out of Python source, so prompts can
   be edited, reviewed, and versioned independently of code.
@@ -241,7 +274,10 @@ speaking-order sequencer), `exceptions.py` (`SessionDirectorError`,
 (session state model — as of Release 0.4, also `build_pitch_from_state()`
 and `sync_from_director()`, the read/sync helpers every other component
 uses instead of talking to the Session Director's state directly),
-`styles.py` (shared CSS), `header.py`, `sidebar.py`, `proposal.py`,
+`styles.py` (shared CSS), `header.py`, `sidebar.py`, `proposal.py`
+(as of Release 0.9, also `_render_founder_report_section()` — the
+Founder Feedback Report download, gated on
+`SessionPhase.SESSION_COMPLETE` and a real `founder_report`),
 `conversation.py`, `response.py`, `controls.py`.
 
 - **Purpose:** Every Streamlit-facing component. This is the only
@@ -263,8 +299,17 @@ uses instead of talking to the Session Director's state directly),
 
 ## `utils/`
 
-**Contents:** `ids.py` (`new_id()`), `formatting.py`
-(`format_currency()`, `format_percentage()`).
+**Contents (current as of Release 0.9):** `ids.py` (`new_id()`),
+`formatting.py` (`format_currency()`, `format_percentage()`),
+`pii.py` (`anonymize_pii()`, Release 0.6.1), `pdf_extraction.py`
+(`extract_pdf_text()`, Release 0.6), `financial_calculations.py`
+(Release 0.8 — deterministic implied-valuation/multiple/margin/
+growth/burn/runway/dilution calculations; used by
+`agents/financial_analyst.py`, never by an LLM prompt),
+`report_rendering.py` (`render_founder_report_pdf()`, Release 0.9 —
+pure PDF rendering of an already-generated `FounderFeedbackReport` via
+`reportlab`, entirely in memory; no provider calls, no filesystem
+writes).
 
 - **Purpose:** Small, dependency-free helper functions with no
   business logic and no dependency on any other project package.

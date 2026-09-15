@@ -114,15 +114,60 @@ class DebateFinished(Event):
 
 
 @dataclass(frozen=True, kw_only=True)
+class AdvancedAnalysisStarted(Event):
+    """Publisher: Session Director. Fires when Advanced Financial
+    Analysis begins, after Internal Deliberation and before
+    Verification (Release 0.8 -- see `docs/architecture.md` -> Advanced
+    Financial Analysis for the ordering rationale)."""
+
+
+@dataclass(frozen=True, kw_only=True)
+class AdvancedAnalysisCompleted(Event):
+    """Publisher: Session Director, once `agents.financial_analyst
+    .FinancialAnalyst.analyze()` produces a real `FinancialAnalysisResult`
+    (Release 0.8). Fires instead of `AdvancedAnalysisFailed`."""
+
+    summary: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class AdvancedAnalysisFailed(Event):
+    """Publisher: Session Director. Fires instead of
+    `AdvancedAnalysisCompleted` when the financial analysis could not
+    be completed (unconfigured provider, request failure, unparseable
+    response) -- the session still proceeds with `FinancialAnalyst
+    .fallback_result()` (`analysis_status="unavailable"`), never a
+    silently-skipped step. Added in Release 0.8."""
+
+    reason: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class VerificationStarted(Event):
     """Publisher: Session Director."""
 
 
 @dataclass(frozen=True, kw_only=True)
+class VerificationCompleted(Event):
+    """Publisher: Session Director, once `agents.verification_agent
+    .VerificationAgent.verify()` returns a real result. Added in
+    Release 0.7."""
+
+    summary: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class VerificationFailed(Event):
-    """Publisher: Verification Agent. Not fired in Release 0.4 (no
-    Verification Agent intelligence exists yet -- verification always
-    deterministically passes; see orchestrator/orchestrator.py)."""
+    """Publisher: Session Director. Fires instead of `VerificationCompleted`
+    when verification could not be completed (unconfigured provider,
+    request failure, or an unparseable response) -- the session still
+    proceeds with `VerificationAgent.fallback_result()`
+    (`VerificationResult.verification_status="unavailable"`), never a
+    silently-passing placeholder. `retry_count` is always `0` as of
+    Release 0.7 -- `docs/state_machines.md`'s Verification-failure
+    bounce-back-to-Internal-Deliberation retry path remains planned,
+    not implemented (see `docs/release_log.md` -> Release 0.7's
+    documented deviation)."""
 
     reason: str
     retry_count: int
@@ -135,26 +180,86 @@ class ConsensusStarted(Event):
 
 @dataclass(frozen=True, kw_only=True)
 class ConsensusReached(Event):
-    """Publisher: Consensus Engine (Release 0.4: a deterministic placeholder
-    inside the Session Director; no real aggregation logic exists yet)."""
+    """Publisher: Session Director, once `orchestrator.consensus_engine
+    .ConsensusEngine.reconcile()` returns a real result (Release 0.7).
+    `outcome_summary` is a short factual summary of the real
+    `ConsensusResult`, never the full structured object -- the
+    conversation itself only ever shows a concise founder-facing
+    summary (see `docs/architecture.md` -> Consensus Engine)."""
 
     outcome_summary: str
 
 
 @dataclass(frozen=True, kw_only=True)
-class InvestmentDecisionMade(Event):
-    """Publisher: Consensus Engine (Release 0.4: deterministic placeholder).
+class ConsensusFailed(Event):
+    """Publisher: Session Director. Fires instead of `ConsensusReached`
+    when consensus could not be reached (unconfigured provider,
+    request failure, or an unparseable response) --
+    `ConsensusResult.recommendation="unavailable"` in this case, never
+    silently treated as `"do_not_invest"` or `"insufficient_evidence"`
+    (both genuine conclusions a *completed* Consensus run can reach).
+    Added in Release 0.7."""
 
-    Fires exactly once per session. In Release 0.4, `deal_status` is
-    always `DealStatus.PENDING` with `amount`/`equity_pct` unset --
-    real investment intelligence is Release 0.5+ (see
-    `docs/architecture.md` -> Consensus Engine).
+    reason: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class InvestmentDecisionMade(Event):
+    """Publisher: Session Director, reflecting the real
+    `ConsensusResult` as of Release 0.7 (Release 0.4-0.6.1: a fixed
+    `DealStatus.PENDING` placeholder).
+
+    Fires exactly once per session, when the `INVESTMENT_DECISION`
+    phase begins. `deal_status` is derived from
+    `ConsensusResult.recommendation` (see
+    `orchestrator/orchestrator.py::_deal_status_from_recommendation()`)
+    -- `amount`/`equity_pct` remain unset here since this event
+    represents the committee's formal recommendation, not any single
+    Shark's own offer (see `SharkOfferMade` for those).
     """
 
     deal_status: DealStatus
     amount: float | None = None
     equity_pct: float | None = None
     conditions: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class FounderReportStarted(Event):
+    """Publisher: Session Director. Fires once, as the first step of
+    `SharkTankOrchestrator._complete_session()` -- after Negotiation
+    (or immediately, if no Shark made an offer) and before the
+    session's closing message and `SESSION_COMPLETE`. Added in Release
+    0.9. Deliberately not tied to its own `SessionPhase`: report
+    generation is a finalization step, not a stage the founder actively
+    participates in or waits through turn-by-turn (spec Part 19 --
+    "background/finalization process, not another visible Shark
+    turn") -- see `docs/architecture.md` -> Founder Feedback Report for
+    why no new phase was added."""
+
+
+@dataclass(frozen=True, kw_only=True)
+class FounderReportCompleted(Event):
+    """Publisher: Session Director, once `agents.founder_feedback_agent
+    .FounderFeedbackAgent.generate()` produces a real
+    `FounderFeedbackReport` (`report_status="completed"`). Added in
+    Release 0.9."""
+
+    summary: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class FounderReportFailed(Event):
+    """Publisher: Session Director. Fires instead of
+    `FounderReportCompleted` when the report could not be generated
+    (unconfigured provider, request failure, unparseable response) --
+    the session still completes normally with
+    `FounderFeedbackAgent.fallback_result()`
+    (`report_status="unavailable"`), never a silently fabricated report
+    and never confused with a genuine Shark rejection or other outcome
+    (Release 0.9 spec Part 22). Added in Release 0.9."""
+
+    reason: str
 
 
 @dataclass(frozen=True, kw_only=True)

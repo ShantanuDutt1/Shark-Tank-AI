@@ -38,9 +38,10 @@ import re
 from typing import Any
 
 from agents.base_agent import BaseAgent
+from agents.prompt_formatting import format_market_brief, format_offer, format_qa_transcript
 from agents.prompt_safety import wrap_untrusted
 from config.logging_config import get_logger
-from models.enums import SPEAKER_LABELS, SpeakerRole
+from models.enums import SpeakerRole
 from models.schemas import (
     ConversationMessage,
     MarketRealityBrief,
@@ -393,13 +394,13 @@ class SharkAgent(BaseAgent):
             "founder_name": pitch.founder_name,
             "pitch_description": wrap_untrusted(pitch.description, label="founder_pitch"),
             "qa_transcript": wrap_untrusted(
-                _format_qa_transcript(conversation), label="conversation_transcript"
+                format_qa_transcript(conversation), label="conversation_transcript"
             ),
         }
         if "own_evaluation" in extra:
-            values["own_evaluation"] = _format_offer_for_prompt(extra["own_evaluation"])
+            values["own_evaluation"] = format_offer(extra["own_evaluation"])
         if "market_brief" in extra:
-            values["market_brief"] = _format_market_brief(extra["market_brief"])
+            values["market_brief"] = format_market_brief(extra["market_brief"])
         return _render_template(template, **values)
 
     def _render_negotiation(self, pitch: Pitch, own_offer: Offer, founder_counter: str) -> str:
@@ -410,7 +411,7 @@ class SharkAgent(BaseAgent):
             "name": persona.name,
             "company_name": pitch.company_name,
             "pitch_description": wrap_untrusted(pitch.description, label="founder_pitch"),
-            "own_offer": _format_offer_for_prompt(own_offer),
+            "own_offer": format_offer(own_offer),
             "wrapped_counter": wrap_untrusted(founder_counter, label="founder_counter_offer"),
         }
         return _render_template(template, **values)
@@ -487,90 +488,6 @@ def _render_template(template: str, **values: str) -> str:
     for key, value in values.items():
         rendered = rendered.replace("{" + key + "}", value)
     return rendered
-
-
-def _format_qa_transcript(conversation: list[ConversationMessage]) -> str:
-    """Render the Shark/Founder exchange so far as plain text, for
-    inclusion in a prompt. Moderator narration is omitted -- it carries
-    no evaluative content a Shark needs."""
-    relevant_roles = (
-        SpeakerRole.CONSERVATIVE_VC,
-        SpeakerRole.GROWTH_VC,
-        SpeakerRole.BALANCED_VC,
-        SpeakerRole.FOUNDER,
-    )
-    relevant = [m for m in conversation if m.speaker in relevant_roles]
-    if not relevant:
-        return "(No questions have been asked yet.)"
-    lines = [f"{SPEAKER_LABELS.get(m.speaker, m.speaker.value)}: {m.content}" for m in relevant]
-    return "\n".join(lines)
-
-
-def _format_offer_for_prompt(offer: Offer) -> str:
-    if not offer.interested:
-        return f"Not interested. Reasoning: {offer.rationale}"
-    parts = [f"Interested: ${offer.amount:,.0f} for {offer.equity_pct:.1f}% equity."]
-    if offer.conditions:
-        parts.append(f"Conditions: {offer.conditions}")
-    parts.append(f"Reasoning: {offer.rationale}")
-    return " ".join(parts)
-
-
-def _format_market_brief(brief: MarketRealityBrief | None) -> str:
-    """Render a `MarketRealityBrief` as plain text for inclusion in a
-    prompt, or an explicit "none available" note -- never silently
-    omitted, so a Shark's prompt always makes clear whether external
-    evidence exists (Release 0.6 spec Part C)."""
-    if brief is None:
-        return "(No market research is available for this session.)"
-    if brief.is_fallback:
-        return f"(Market research was not available: {brief.research_limitations})"
-
-    lines = [
-        f"Industry: {brief.industry or 'unknown'}",
-        f"Business model: {brief.business_model or 'unknown'}",
-        f"Market summary: {brief.market_summary or 'Insufficient evidence'}",
-        f"Market size: {brief.market_size_estimate or 'Insufficient evidence'}",
-        f"Market growth: {brief.market_growth or 'Insufficient evidence'}",
-    ]
-    if brief.competitors:
-        lines.append(f"Competitors/comparables: {', '.join(brief.competitors)}")
-    if brief.financial_benchmarks:
-        lines.append(f"Financial benchmarks: {brief.financial_benchmarks}")
-    if brief.relevant_transactions:
-        lines.append(f"Relevant transactions: {brief.relevant_transactions}")
-    if brief.has_conflicting_evidence:
-        lines.append(
-            f"Conflicting evidence found (do not treat one source as settled fact): "
-            f"{brief.conflicting_evidence_notes or 'sources disagreed on at least one figure.'}"
-        )
-    if brief.failed_objectives:
-        lines.append(
-            "Research categories that could not be completed (technical failure, not "
-            f"negative evidence): {', '.join(brief.failed_objectives)}"
-        )
-
-    valuation = brief.valuation
-    if valuation.confidence == "insufficient_evidence" or valuation.low is None:
-        lines.append("Market-informed valuation: insufficient evidence for a defensible estimate.")
-    else:
-        lines.append(
-            f"Market-informed valuation range: ${valuation.low:,.0f}-${valuation.high:,.0f} "
-            f"(methodology: {valuation.methodology}; confidence: {valuation.confidence})"
-        )
-    if brief.founder_implied_valuation is not None:
-        lines.append(f"Founder's implied valuation: ${brief.founder_implied_valuation:,.0f}")
-    if brief.valuation_comparison:
-        lines.append(f"Valuation comparison: {brief.valuation_comparison}")
-
-    for claim in brief.unsupported_claims:
-        lines.append(f"Unsupported/aggressive claim: \"{claim.claim}\" -- {claim.assessment} ({claim.external_evidence})")
-    for discrepancy in brief.material_discrepancies:
-        lines.append(f"Material discrepancy: {discrepancy}")
-    if brief.research_limitations:
-        lines.append(f"Research limitations: {brief.research_limitations}")
-
-    return "\n".join(lines)
 
 
 def _parse_json_object(raw: str) -> dict[str, Any]:

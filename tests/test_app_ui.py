@@ -30,11 +30,29 @@ def _new_app() -> AppTest:
 
 
 def _started_app() -> AppTest:
-    """Launch the app, submit `SAMPLE_PROPOSAL` as text, and click Start."""
+    """Launch the app, submit `SAMPLE_PROPOSAL` as text, and click Start.
+
+    Ends with one extra, idempotent settle rerun (Release 0.9.5 QA
+    finding): `_handle_start_session()` (`ui/controls.py`) calls
+    `st.rerun()` itself inside the button's callback, and `AppTest`'s
+    in-process click simulation does not always fully register a
+    *second* widget click chained immediately after a callback that
+    already triggered its own rerun -- confirmed via direct,
+    repeatable isolation (see `docs/release_log.md` -> Release 0.9.5).
+    A real browser round-trip never exhibits this, since every click
+    there is already a fresh, fully-settled request/rerun; this is a
+    test-harness artifact only. Rerunning with no new input is
+    idempotent and changes no assertion this helper's many callers
+    make -- it only makes the *next* click after this function returns
+    register reliably. This is the same root cause behind this file's
+    long-documented "2-7 non-deterministic failures" -- every affected
+    test below chains a button click directly onto this helper's
+    return with no intervening `chat_input`/`text_area` interaction."""
     at = _new_app()
     at.run(timeout=15)
     at.text_area[0].set_value(SAMPLE_PROPOSAL).run(timeout=15)
     at.button(key="start_session_button").click().run(timeout=15)
+    at.run(timeout=15)
     assert not at.exception
     return at
 
@@ -116,7 +134,6 @@ def test_new_session_does_not_inherit_old_proposal_after_reset():
 
 def test_messages_come_from_conversation_state_not_hardcoded_text():
     at = _started_app()
-    from models.enums import SpeakerRole
 
     director = at.session_state["_session_director"]
     rendered_speakers = [m.name for m in at.chat_message]
@@ -322,6 +339,68 @@ def test_pdf_upload_extracts_real_text_not_just_filename():
     assert "eco-friendly packaging" in at.session_state["proposal_content"]
     assert at.session_state["proposal_content"] != "pitch.pdf"
     assert at.session_state["proposal_uploaded"] is True
+
+
+# ---------------------------------------------------------------------
+# Founder Feedback Report (Release 0.9)
+# ---------------------------------------------------------------------
+
+
+def test_founder_report_section_absent_before_completion():
+    at = _started_app()
+    assert "Founder Feedback Report" not in [e.label for e in at.expander]
+
+
+def test_founder_report_section_appears_after_completion():
+    at = _started_app()
+    _answer(at, "a")
+    _answer(at, "b")
+    _answer(at, "c")
+    assert at.session_state["current_phase"] == "session_complete"
+    assert "Founder Feedback Report" in [e.label for e in at.expander]
+
+
+def test_founder_report_unavailable_notice_shown_without_a_configured_provider():
+    """No `ANTHROPIC_API_KEY` is configured in the test environment, so
+    `FounderFeedbackAgent.generate()` always raises and the director's
+    `founder_report.report_status` is `"unavailable"` -- the UI must
+    show an honest notice, not a download button for a fabricated
+    report, and must never crash (Release 0.9 spec Part 22)."""
+    at = _started_app()
+    _answer(at, "a")
+    _answer(at, "b")
+    _answer(at, "c")
+    director = at.session_state["_session_director"]
+    assert director.founder_report is not None
+    assert director.founder_report.report_status == "unavailable"
+
+    captions = [c.value for c in at.caption]
+    assert any("founder feedback report could not be generated" in c.lower() for c in captions)
+    assert not any(b.key == "founder_report_download_button" for b in at.button)
+
+
+def test_founder_report_isolated_across_sessions_after_reset():
+    """A prior session's `founder_report` must never leak into a new
+    session (Release 0.9 spec Part 26) -- confirmed the same way
+    `test_new_start_after_completion_clears_old_completed_session`
+    confirms director identity changes: a brand-new
+    `SharkTankOrchestrator` per session means a brand-new (initially
+    `None`) `founder_report` with zero extra cleanup code required."""
+    at = _started_app()
+    _answer(at, "a")
+    _answer(at, "b")
+    _answer(at, "c")
+    old_director = at.session_state["_session_director"]
+    assert old_director.founder_report is not None
+
+    at.button(key="end_session_button").click().run(timeout=15)
+    at.text_area[0].set_value("A completely different pitch about solar panels.").run(timeout=15)
+    at.button(key="start_session_button").click().run(timeout=15)
+
+    new_director = at.session_state["_session_director"]
+    assert new_director is not old_director
+    assert new_director.founder_report is None
+    assert "Founder Feedback Report" not in [e.label for e in at.expander]
 
 
 def test_pdf_with_no_extractable_text_is_not_marked_uploaded():

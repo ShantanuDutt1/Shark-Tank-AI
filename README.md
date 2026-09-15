@@ -6,18 +6,30 @@ three Shark investor personas (Conservative, Growth, Balanced) — gets
 questioned one Shark at a time, watches the committee deliberate
 privately, and receives a session outcome.
 
-> **Status: Release 0.6.1 — Hardening, Research Integrity & Failure
-> Semantics**, on top of Release 0.6's Market Reality, Proposal
-> Validation, Safety, Structured Extraction, and Negotiation. The
-> session flow is unchanged: Founder Proposal → Moderator Validation &
+> **Status: Release 0.9.5 — Full-System QA, Validation, Simulation
+> Conformance & Hardening**, a dedicated QA milestone on top of Release
+> 0.9's Agentic Founder Feedback Report, Release 0.8's Advanced
+> Investment Analysis + Decision Quality, Release 0.7's Verification
+> Agent + Formal Consensus Engine, Release 0.6.1's Hardening/Research
+> Integrity/Failure Semantics work, and Release 0.6's Market Reality,
+> Proposal Validation, Safety, Structured Extraction, and Negotiation.
+> The session flow is: Founder Proposal → Moderator Validation &
 > Extraction → Market Reality Research → Shark Analysis → Shark
-> Questions → Internal Deliberation → Initial Offers → Negotiation →
-> Final Outcome. Every stage from validation onward uses real,
-> provider-backed reasoning — not deterministic templates — with a
-> graceful, clearly-labeled fallback at every step if the provider is
-> unconfigured or fails, so the app always keeps running; as of
-> Release 0.6.1, that fallback is also never mistakable for a genuine
-> investment decision (see *What Works Today* below). See *Current
+> Questions → Internal Deliberation → Advanced Financial Analysis →
+> Verification → Consensus → Investment Decision → Negotiation →
+> **Founder Feedback Report** → Final Outcome. Every stage from
+> validation onward uses real, provider-backed reasoning — not
+> deterministic templates — with a graceful, clearly-labeled fallback
+> at every step if the provider is unconfigured or fails, so the app
+> always keeps running; that fallback is never mistakable for a genuine
+> investment decision, including Advanced Analysis/Verification/
+> Consensus/the Founder Feedback Report itself (see *What Works Today*
+> below). Release 0.9.5 verified the whole system end-to-end through
+> the real UI with a permanent canonical reference proposal
+> (`tests/fixtures/proposals/0_9_5_reference_proposal.md`), fixed a
+> real defect where the three canonical final-outcome messages were
+> never implemented, and eliminated a long-standing source of
+> non-deterministic `tests/test_app_ui.py` failures. See *Current
 > Limitations* below and [docs/release_log.md](docs/release_log.md)
 > for exactly what shipped in each release.
 
@@ -32,9 +44,10 @@ privately, and receives a session outcome.
   `st.chat_input`, not a static mockup.
 - **A full session lifecycle**, driven entirely by the backend, not
   the UI: Idle → Proposal Upload → Validation → Market Research →
-  Question Round → Internal Deliberation → Verification → Consensus →
-  Investment Decision → Negotiation → Session Complete, plus a clean
-  reset back to Idle.
+  Question Round → Internal Deliberation → Advanced Financial Analysis →
+  Verification → Consensus → Investment Decision → Negotiation →
+  Session Complete (generating the Founder Feedback Report as its
+  final step), plus a clean reset back to Idle.
 - **Real Moderator validation & extraction.** An LLM call decides
   whether a submission is a legitimate business proposal (missing
   revenue/customers/financials is never itself a rejection reason) and
@@ -62,14 +75,68 @@ privately, and receives a session outcome.
   own real offer or declines — per
   [docs/agent_personas.md](docs/agent_personas.md). All three Sharks
   always evaluate against the identical research evidence.
+- **Real Advanced Financial Analysis.** After the Sharks deliberate, a
+  Financial Analyst extracts financial facts (revenue, costs, cash,
+  customers, SaaS metrics where relevant) with explicit provenance —
+  distinguishing what the founder stated from what's derived, inferred,
+  estimated, or missing — and computes every calculation
+  deterministically in Python: implied valuation, revenue/ARR
+  multiples, margins, growth, burn, runway, dilution. It flags
+  inconsistencies (e.g. a stated margin that doesn't match revenue and
+  cost figures also given), builds downside/base/upside valuation
+  scenarios with an identified assumption source for each, and
+  identifies structured risk and upside factors — never inventing a
+  missing input or presenting a projection as a current fact.
+- **Real Verification and Consensus.** A Verification Agent audits
+  whether each Shark's final reasoning — and the financial analysis
+  itself — is actually supported by the proposal, founder answers, and
+  market research — distinguishing supported claims from unsupported
+  ones, contradictions, and arithmetic problems, without forcing the
+  Sharks to agree with each other. A Consensus Engine then reconciles
+  all three Sharks' positions, the financial analysis, and the
+  Verification findings into one formal committee recommendation
+  (`invest` / `invest with conditions` / `do not invest` /
+  `insufficient evidence`), explicitly distinguishing **business
+  quality** (how good the company is) from **deal quality** (how
+  attractive it is *at the proposed terms*) — an excellent business at
+  an excessive valuation can still be a poor deal. Explicitly not a
+  majority vote: a single Shark's well-supported concern can outweigh a
+  2-1 split. Neither component is a fourth Shark or makes its own
+  investment offer; each Shark's own real, independent offer (below) is
+  unaffected.
 - **Real Negotiation.** The founder gets one counter-offer turn with
   each Shark who made an offer; that Shark independently accepts,
   rejects, or modifies.
+- **A real Founder Feedback Report**, generated once at the end of
+  every session and offered as a two-page PDF download. Grounded in
+  real, cited research into how early-stage investors (YC, Techstars,
+  Sequoia, 500 Global, a16z, and others) actually evaluate startups
+  (see [docs/investor_evaluation_framework.md](docs/investor_evaluation_framework.md)),
+  it critically synthesizes the *entire* simulation — not just the
+  Sharks' offers — into strengths, areas that need work, and (reserved
+  for genuinely serious problems) critical issues; an investor-readiness
+  assessment across market, team, traction, unit economics, and more;
+  qualified (never falsely precise) valuation and financial feedback;
+  and a prioritized NOW/NEXT/LATER action plan, each item naming the
+  problem, why it matters, the action, and what evidence would resolve
+  it. It is not a fourth Shark and never issues or implies an
+  investment decision — every report carries a fixed disclaimer to that
+  effect, generated once per session and rendered entirely in memory
+  (no file is ever written to disk).
 - **A technical failure is never presented as a decision.** If a
   Shark's evaluation or negotiation response fails for a provider
   reason, the founder sees an honest "evaluation was unavailable" /
   "could not process your counter-offer" message — never a fabricated
   pass, decline, or walk-away.
+- **The session's real final outcome is always one of three exact,
+  fixed lines** (Release 0.9.5), chosen from what actually happened in
+  Negotiation — never a generic "thanks for pitching," and never
+  inferred from the committee's advisory Consensus recommendation
+  alone: *"Sorry Little Fish, the Sharks were not impressed"* (no
+  Shark interested), *"Sorry Little Fish, there was nothing for you
+  here today"* (at least one Shark was interested but no deal closed),
+  or *"Congratulations, Little Fish. You will now swim with the
+  Sharks!"* (a deal was accepted or modified into agreement).
 - **PII redaction and prompt-injection defense.** Emails, phone
   numbers, and street addresses are redacted from the proposal before
   anything else sees it, from the Moderator's own extracted fields
@@ -87,11 +154,35 @@ privately, and receives a session outcome.
 
 ## What's a Placeholder Today
 
-- **No formal cross-Shark consensus.** Each Shark's evaluation, offer,
-  and negotiation is real and independent, but there is no real
-  Consensus Engine combining all three into one final aggregated
-  decision — Verification and Consensus remain deterministic
-  pass-through phases (Release 0.7 scope).
+- **Financial analysis doesn't feed back into each Shark's own
+  reasoning.** Each Shark still forms its question, evaluation, and
+  deliberation using only the Market Reality Brief, exactly as before
+  Release 0.8 — the Financial Analyst's extracted facts and
+  calculations reach the founder-facing decision only through
+  Verification (which audits them) and Consensus (which reconciles
+  them), not through any individual Shark's own prompt.
+- **Scenario valuations are a single figure per scenario, not a true
+  range.** Downside/base/upside each compute one point estimate
+  (revenue × multiple); the UI rounds it for display to avoid false
+  precision, but a genuinely ranged per-scenario valuation is future
+  work.
+- **No sector-specific calculation frameworks.** The same general set
+  of financial calculations runs regardless of business model; a
+  business-model label steers what the extraction step prioritizes,
+  but there's no distinct SaaS-vs-restaurant-vs-marketplace
+  calculation path.
+- **No bounded retry when Verification flags a serious problem.** A
+  critical Verification finding does not currently send the committee
+  back for another deliberation round (`docs/state_machines.md` §
+  Rule 3's documented, still-unimplemented path) — it flows forward
+  into the Consensus Engine's reconciliation instead, where it can
+  still drive the recommendation toward `do_not_invest`/
+  `insufficient_evidence`.
+- **No distinct "unanimous rejection" outcome.** If all three Sharks
+  independently conclude a pitch is impossible or fraudulent, that
+  looks the same as an ordinary `do_not_invest` recommendation today —
+  `docs/agent_personas.md` §12.2's more severe, no-negotiation
+  short-circuit path remains unimplemented.
 - **No multi-round negotiation.** Exactly one counter-offer per
   interested Shark; no counter-to-a-counter, and `SharkTankOrchestrator
   .run_pitch()` (a full negotiation across an arbitrary agent list)
@@ -111,6 +202,13 @@ privately, and receives a session outcome.
   independently re-fetches or verifies a source. Business-model
   classification for research planning is a small keyword heuristic,
   not a general industry taxonomy or an LLM classifier.
+- **The Founder Feedback Report is a single pass, not interactive.**
+  It is generated exactly once per session, from a single LLM call — a
+  founder cannot ask it follow-up questions, request revisions, or
+  regenerate it with different emphasis. It is also not persisted
+  anywhere: closing the browser tab or resetting the session discards
+  it, exactly like every other in-session artifact (see *No
+  persistence* above).
 
 See [docs/release_backlog.md](docs/release_backlog.md) for the full
 roadmap.
@@ -119,15 +217,15 @@ roadmap.
 
 ```
 shark-tank-ai/
-├── agents/          # ModeratorAgent, SharkAgent, MarketResearchAgent, prompt_safety
-├── orchestrator/     # SharkTankOrchestrator (Session Director), EventBus, TurnController, NegotiationController
+├── agents/          # ModeratorAgent, SharkAgent, MarketResearchAgent, VerificationAgent, FinancialAnalyst, FounderFeedbackAgent, prompt_safety
+├── orchestrator/     # SharkTankOrchestrator (Session Director), EventBus, TurnController, NegotiationController, ConsensusEngine
 ├── providers/        # BaseProvider + AnthropicProvider; BaseResearchProvider + AnthropicResearchProvider
 ├── memory/           # Pluggable session/negotiation memory backends (placeholder)
 ├── models/           # Shared pydantic data models (Pitch, Offer, MarketRealityBrief, ConversationMessage, ...)
 ├── prompts/          # Prompt templates (plain text) + loader
 ├── ui/               # Streamlit UI components (chat, proposal intake, controls, session state)
 ├── config/           # Settings (pydantic-settings) + logging config
-├── utils/            # Small shared helpers (IDs, PII redaction, PDF extraction, formatting)
+├── utils/            # Small shared helpers (IDs, PII redaction, PDF extraction/rendering, formatting, deterministic financial calculations)
 ├── tests/            # Unit tests + Streamlit AppTest integration tests
 ├── docs/             # Architecture and process documentation
 ├── docker/           # Dockerfile + .dockerignore
@@ -237,12 +335,15 @@ for a setup walkthrough. Additional engineering documentation:
   in each release, historically.
 - [docs/release_backlog.md](docs/release_backlog.md) — planned,
   not-yet-built work by release.
+- [docs/investor_evaluation_framework.md](docs/investor_evaluation_framework.md)
+  — real, cited research into how early-stage investors evaluate
+  startups, underlying the Founder Feedback Report's prompt.
 
 ## Roadmap
 
 See [docs/release_backlog.md](docs/release_backlog.md) for the full,
-maintained roadmap. Immediately next (Release 0.7):
+maintained roadmap. Immediately next (Release 0.9.5+):
 
-- [ ] Implement a real `VerificationAgent`, replacing the always-pass placeholder
-- [ ] Implement a real Consensus Engine aggregating the three Sharks' independent offers into one final decision
+- [ ] Implement the `Verification → Internal Deliberation` bounded retry path for a critical Verification finding (`docs/state_machines.md` § Rule 3)
 - [ ] Implement full multi-round negotiation (`SharkTankOrchestrator.run_pitch()`)
+- [ ] Reconcile `docs/agent_personas.md` §12.2's Unanimous Rejection path with the Consensus Engine's normal `do_not_invest` outcome

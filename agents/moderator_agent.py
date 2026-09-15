@@ -48,6 +48,24 @@ WELCOME_MESSAGE = (
     "Present your proposal. Paste the text or upload a PDF"
 )
 
+#: The three fixed, canonical session-closing lines (Release 0.9.5
+#: spec Part 20) -- exactly one is delivered, chosen from the actual
+#: negotiation outcome, never from whether the pipeline merely
+#: completed technically. No Shark showed any interest at all (offer
+#: phase never even reached Negotiation):
+OUTCOME_NO_INTEREST = "Sorry Little Fish, the Sharks were not impressed"
+#: At least one Shark was interested and Negotiation ran, but it
+#: concluded with no accepted or modified deal:
+OUTCOME_NO_DEAL = "Sorry Little Fish, there was nothing for you here today"
+#: At least one Shark accepted or modified a deal during Negotiation:
+OUTCOME_DEAL_ACCEPTED = "Congratulations, Little Fish. You will now swim with the Sharks!"
+
+_OUTCOME_MESSAGES: dict[str, str] = {
+    "no_interest": OUTCOME_NO_INTEREST,
+    "no_deal": OUTCOME_NO_DEAL,
+    "deal_accepted": OUTCOME_DEAL_ACCEPTED,
+}
+
 _MAX_TOKENS_VALIDATION = 500
 
 
@@ -137,6 +155,21 @@ class ModeratorAgent:
             "not be able to participate in this part of the session."
         )
 
+    def consensus_announcement(self) -> str:
+        """Narration marking the transition from Internal Deliberation
+        into Verification/Consensus and the individual Shark offers
+        that follow (Release 0.7). Deliberately generic -- Verification
+        findings and the Consensus Engine's full recommendation are
+        never dumped into the chat (spec Part 23); a concise summary is
+        available separately via `ui/proposal.py`'s "Investment
+        Committee" expander, the same pattern Market Reality Research
+        already established.
+        """
+        return (
+            "The panel has completed its deliberation and independent "
+            "review. Here is where each Shark stands."
+        )
+
     def negotiation_announcement(self) -> str:
         """Narration marking the start of Negotiation."""
         return (
@@ -144,12 +177,23 @@ class ModeratorAgent:
             "one negotiation turn with each interested Shark."
         )
 
-    def closing_message(self) -> str:
-        """Final message delivered when the session reaches completion."""
-        return (
-            "This concludes the committee's session. Thank you for your "
-            "pitch."
-        )
+    def closing_message(self, outcome: str) -> str:
+        """The session's final message -- one of three fixed, canonical
+        outcome lines (Release 0.9.5 spec Part 20), never a single
+        generic "thanks for pitching" regardless of what actually
+        happened. `outcome` is chosen by the caller
+        (`orchestrator.orchestrator.SharkTankOrchestrator._final_outcome()`)
+        from the session's real negotiation result -- never from
+        whether the pipeline merely completed technically (spec Part
+        20: "Do not display a successful investment message merely
+        because the technical pipeline completed"). Must be one of
+        `"no_interest"` / `"no_deal"` / `"deal_accepted"`; an
+        unrecognized value falls back to `"no_deal"` (the most neutral
+        of the three) rather than raising, consistent with this
+        codebase's lenient-parsing convention -- every real call site
+        always passes a value from that closed set, so this fallback
+        is not expected to trigger in practice."""
+        return _OUTCOME_MESSAGES.get(outcome, OUTCOME_NO_DEAL)
 
 
 def _parse_json_object(raw: str) -> dict:

@@ -11,7 +11,7 @@ State Machine (see the note at the end of section 1).
 
 ## 1. User Session State Machine
 
-**Status: The eleven states below are implemented as
+**Status: The twelve states below are implemented as
 `models.enums.SessionPhase`.** They already drive
 `ui/header.py`'s progress stepper and `ui/proposal.py`'s Session
 Stage card. Every transition described below is implemented:
@@ -21,7 +21,15 @@ Stage card. Every transition described below is implemented:
 Proposal Uploaded via "Start Session", and any state → Idle via "End
 Session", a full reset) still live in `ui/controls.py`, per rule 4
 below (`architecture.md` → *Session Director*). `Market Research` and
-`Negotiation` were added in Release 0.6.
+`Negotiation` were added in Release 0.6. As of Release 0.7, both
+`Verification` and `Consensus` run real logic
+(`agents.verification_agent.VerificationAgent` /
+`orchestrator.consensus_engine.ConsensusEngine`) instead of the
+Release 0.4-0.6.1 deterministic pass-through. As of Release 0.8,
+`Advanced Analysis` (`agents.financial_analyst.FinancialAnalyst`) runs
+between Internal Deliberation and Verification -- see the states table
+below and `docs/architecture.md` -> *Verification Agent* / *Consensus
+Engine* / *Advanced Financial Analysis*.
 
 ### States
 
@@ -33,11 +41,12 @@ below (`architecture.md` → *Session Director*). `Market Research` and
 | Market Research | `market_research` | The Market Reality Research agent gathers and synthesizes external evidence (Release 0.6). |
 | Question Round | `question_round` | The committee questions the founder; the founder may respond. Each Shark forms a preliminary evaluation, informed by the Market Reality Brief, just before asking its question. |
 | Internal Deliberation | `internal_deliberation` | The committee discusses without the founder present. Each Shark forms its *final* evaluation here, now also informed by the founder's actual answers. |
-| Verification | `verification` | The Verification Agent checks the deliberation's soundness. Still a deterministic pass-through placeholder (Release 0.7 scope). |
-| Consensus | `consensus` | The Consensus Engine aggregates positions into one decision. Still a deterministic placeholder (Release 0.7 scope) — each Shark's own final evaluation is real (Release 0.5/0.6), but there is no real cross-Shark aggregation yet. |
-| Investment Decision | `investment_decision` | Each Shark announces its own real, independent offer (or declines) to the founder (Release 0.6). |
+| Advanced Analysis | `advanced_analysis` | `agents.financial_analyst.FinancialAnalyst` extracts financial facts (with provenance) from the proposal/founder answers and computes deterministic financial calculations, scenario valuations, and risk/upside factors (Release 0.8). Produces a `FinancialAnalysisResult`; never makes an investment decision itself. Runs *before* Verification so Verification can audit it (see `docs/architecture.md` -> Advanced Financial Analysis for why this deviates from that release's own suggested diagram order). A technical failure produces `analysis_status="unavailable"` (`AdvancedAnalysisFailed` event) rather than blocking the session. |
+| Verification | `verification` | `agents.verification_agent.VerificationAgent` audits whether each Shark's final reasoning -- and, as of Release 0.8, the Advanced Financial Analysis itself -- is actually supported by the proposal, founder answers, and Market Reality Brief (Release 0.7). Produces a `VerificationResult`; never makes an investment decision itself. A technical failure produces `verification_status="unavailable"` (`VerificationFailed` event) rather than blocking the session. |
+| Consensus | `consensus` | `orchestrator.consensus_engine.ConsensusEngine` reconciles the three Sharks' positions, the Advanced Financial Analysis, and the Verification findings into one formal `ConsensusResult` (Release 0.7, extended in Release 0.8 with business-quality/deal-quality/financial-health/growth/risk/scenario fields) — explicitly not a majority vote. A technical failure produces `recommendation="unavailable"` (`ConsensusFailed` event), distinct from a genuine `"insufficient_evidence"` conclusion. |
+| Investment Decision | `investment_decision` | The Moderator narrates the committee's review, then each Shark announces its own real, independent offer (or declines) to the founder (Release 0.6) — unchanged by Verification/Consensus's addition (Release 0.7 spec Part 21). `InvestmentDecisionMade`'s `deal_status` now reflects the real `ConsensusResult.recommendation` (Release 0.7), not a fixed placeholder. |
 | Negotiation | `negotiation` | The founder gets one counter-offer turn with each Shark who made an offer; that Shark accepts, rejects, or modifies (Release 0.6). |
-| Session Complete | `session_complete` | The session has concluded; only Reset is available. |
+| Session Complete | `session_complete` | The session has concluded; only Reset is available. As of Release 0.9, entering this state is preceded by `SharkTankOrchestrator._complete_session()` synchronously generating the session's `FounderFeedbackReport` via `agents.founder_feedback_agent.FounderFeedbackAgent` — deliberately **not** its own `SessionPhase` (see Rule 6 below and `architecture.md` -> Founder Feedback Report). A technical failure produces `report_status="unavailable"` (`FounderReportFailed` event) rather than blocking completion. |
 
 There is also a **Reset** pseudo-transition, available from any state,
 that returns the session to Idle. It is not itself a `SessionPhase`
@@ -57,13 +66,14 @@ stateDiagram-v2
     Validation --> Idle: Proposal rejected (implemented)
     MarketResearch --> QuestionRound: Research complete (implemented; real evidence-gathering with a fallback brief on failure — see architecture.md -> Market Reality Research)
     QuestionRound --> InternalDeliberation: Questioning complete (implemented)
-    InternalDeliberation --> Verification: Deliberation complete (implemented; real per-Shark evaluation/deliberation, placeholder Verification/Consensus beyond this point — see architecture.md -> Verification Agent)
-    Verification --> Consensus: Verification passed (implemented; always passes today, no real Verification Agent yet)
-    Verification --> InternalDeliberation: Verification failed, re-deliberate (planned; no failure path exists while verification always passes)
-    Consensus --> InvestmentDecision: Consensus reached (implemented; placeholder aggregation outcome — see architecture.md -> Consensus Engine)
+    InternalDeliberation --> AdvancedAnalysis: Deliberation complete (implemented; Release 0.8 -- financial fact extraction and deterministic calculations, see architecture.md -> Advanced Financial Analysis)
+    AdvancedAnalysis --> Verification: Analysis complete, or unavailable (implemented; Verification audits this analysis, per architecture.md -> Verification Agent)
+    Verification --> Consensus: Verification always proceeds to Consensus (implemented; a real audit runs, but a failed/critical finding does not re-route the session -- see Rule 3)
+    Verification --> InternalDeliberation: Verification failed, re-deliberate (planned; not implemented in Release 0.7/0.8 -- see Rule 3's documented deviation)
+    Consensus --> InvestmentDecision: Consensus reached, or unavailable (implemented; real reconciliation via the Consensus Engine — see architecture.md -> Consensus Engine)
     InvestmentDecision --> Negotiation: At least one Shark made an offer (implemented)
-    InvestmentDecision --> SessionComplete: No Shark made an offer (implemented)
-    Negotiation --> SessionComplete: Every interested Shark has received its one founder counter (implemented)
+    InvestmentDecision --> SessionComplete: No Shark made an offer (implemented; Founder Feedback Report generated en route, see Rule 6)
+    Negotiation --> SessionComplete: Every interested Shark has received its one founder counter (implemented; Founder Feedback Report generated en route, see Rule 6)
 
     Idle --> Idle: Reset (implemented)
     ProposalUpload --> Idle: Reset (implemented)
@@ -71,6 +81,7 @@ stateDiagram-v2
     MarketResearch --> Idle: Reset (implemented)
     QuestionRound --> Idle: Reset (implemented)
     InternalDeliberation --> Idle: Reset (implemented)
+    AdvancedAnalysis --> Idle: Reset (implemented)
     Verification --> Idle: Reset (implemented)
     Consensus --> Idle: Reset (implemented)
     InvestmentDecision --> Idle: Reset (implemented)
@@ -104,12 +115,28 @@ stateDiagram-v2
    -- a second, deliberately separate turn controller from
    `orchestrator/turn_controller.py`, since Negotiation's length is
    variable (zero to three turns) where the Question Round's is fixed.
-3. **Verification may bounce back.** A failed verification returns to
-   Internal Deliberation rather than failing the whole session — the
-   committee gets one documented retry path, not silent failure.
-   (Planned; not implemented — Verification always deterministically
-   passes today, since no real Verification Agent exists yet, so this
-   failure path is never taken in practice.)
+3. **Verification may bounce back — still planned, not implemented in
+   Release 0.7.** A failed/critical-finding verification returning to
+   Internal Deliberation for one documented retry, rather than
+   proceeding straight to Consensus regardless, remains a future
+   release's scope. **Release 0.7 deliberately does not implement
+   this path**, even though `VerificationAgent` is now real: adding a
+   bounded retry loop would mean the Session Director gaining new
+   loop/retry-counter control flow and at least one new state
+   transition, which is a meaningfully larger architectural change
+   than "add a real Verification Agent and Consensus Engine" — the
+   Release 0.7 specification's own scope boundary (Part 3: "do not
+   prematurely implement... a completely new UI architecture... a new
+   orchestration framework") and its instruction to challenge, not
+   silently implement, a requirement that would expand the
+   architecture. Today, `VERIFICATION` always proceeds to `CONSENSUS`
+   regardless of what the Verification Agent finds; severe findings
+   instead flow *forward* into the Consensus Engine's reconciliation
+   (e.g. as a `critical`-severity finding that legitimately drives the
+   recommendation toward `do_not_invest` or `insufficient_evidence`),
+   which is how this release surfaces a serious problem without a
+   retry loop. See `docs/release_log.md` -> Release 0.7's documented
+   deviation.
 4. **Forward transitions are Session-Director-driven, not UI-driven.**
    Only Idle → Proposal Upload (via explicit user action) and any
    state → Idle (Reset) are triggered directly by UI button clicks.
@@ -117,6 +144,20 @@ stateDiagram-v2
    (`SharkTankOrchestrator`), never by a UI component setting
    `current_phase` directly — implemented and enforced today, not
    just a rule for future work.
+6. **The Founder Feedback Report is not a `SessionPhase` — deliberate,
+   as of Release 0.9.** Report generation is a finalization step
+   folded into the existing `InvestmentDecision`/`Negotiation` →
+   `SessionComplete` transition, not a new state the founder waits
+   through turn-by-turn: by the time it runs, the simulation's
+   interactive lifecycle is already over, there is no founder input to
+   gate, and the Release 0.9 specification explicitly discourages
+   adding state transitions for cosmetic reasons. Full Event Bus
+   visibility is preserved via `FounderReportStarted`/
+   `FounderReportCompleted`/`FounderReportFailed` (see
+   `event_catalog.md`), fired synchronously inside
+   `_complete_session()`, exactly like every other real
+   agent/finalization step in this codebase (no threading/async is
+   introduced).
 
 ---
 

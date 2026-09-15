@@ -117,7 +117,34 @@ still awaiting a decision.
 | **Publisher** | Session Director |
 | **Subscribers** | Frontend, Memory |
 | **Payload** | `summary: str` |
-| **Description** | Fires when Internal Deliberation concludes and the session is ready to move to Verification. |
+| **Description** | Fires when Internal Deliberation concludes and the session is ready to move to Advanced Financial Analysis (Release 0.8) / Verification. |
+
+### `AdvancedAnalysisStarted`
+
+| | |
+|---|---|
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend |
+| **Payload** | *(none beyond the universal fields)* |
+| **Description** | Added in Release 0.8. Fires when Advanced Financial Analysis begins, after Internal Deliberation and before Verification. |
+
+### `AdvancedAnalysisCompleted`
+
+| | |
+|---|---|
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend, Memory |
+| **Payload** | `summary: str` (a short factual one-liner — business model, fact/finding/risk/upside counts; never the full `FinancialAnalysisResult`) |
+| **Description** | Added in Release 0.8. Fires once `agents.financial_analyst.FinancialAnalyst.analyze()` produces a real `FinancialAnalysisResult` (`analysis_status="completed"`). Triggers the transition to Verification. |
+
+### `AdvancedAnalysisFailed`
+
+| | |
+|---|---|
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend, Memory |
+| **Payload** | `reason: str` (the failing exception's type name) |
+| **Description** | Added in Release 0.8. Fires instead of `AdvancedAnalysisCompleted` when the financial analysis could not be completed (unconfigured provider, request failure, unparseable response) — the session still proceeds to Verification with `FinancialAnalyst.fallback_result()` (`analysis_status="unavailable"`), never a silently-skipped step. |
 
 ### `VerificationStarted`
 
@@ -126,16 +153,25 @@ still awaiting a decision.
 | **Publisher** | Session Director |
 | **Subscribers** | Verification Agent, Frontend |
 | **Payload** | *(none beyond the universal fields)* |
-| **Description** | Fires when the Verification Agent begins checking the deliberation's outputs for consistency. |
+| **Description** | Fires when the Verification Agent begins auditing the Sharks' final evaluations for evidentiary support. |
+
+### `VerificationCompleted`
+
+| | |
+|---|---|
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend, Memory |
+| **Payload** | `summary: str` (a short factual one-liner — overall confidence, issue count; never the full `VerificationResult`) |
+| **Description** | Added in Release 0.7. Fires once `agents.verification_agent.VerificationAgent.verify()` produces a real `VerificationResult` (`verification_status="completed"`). Triggers the transition to Consensus. |
 
 ### `VerificationFailed`
 
 | | |
 |---|---|
-| **Publisher** | Verification Agent |
-| **Subscribers** | Session Director, Frontend |
-| **Payload** | `reason: str`, `retry_count: int` |
-| **Description** | Fires when verification finds an inconsistency. Per `state_machines.md`, this returns the session to Internal Deliberation rather than failing the session, up to a bounded retry count. |
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend, Memory |
+| **Payload** | `reason: str` (the failing exception's type name), `retry_count: int` (always `0` as of Release 0.7 — the bounce-back-to-Internal-Deliberation retry path in `state_machines.md` remains unimplemented; see that document's Rule 3) |
+| **Description** | Fires instead of `VerificationCompleted` when verification could not be completed (unconfigured provider, request failure, unparseable response) — the session still proceeds to Consensus with `VerificationAgent.fallback_result()` (`verification_status="unavailable"`), never a silently-passing placeholder. |
 
 ### `ConsensusStarted`
 
@@ -144,16 +180,25 @@ still awaiting a decision.
 | **Publisher** | Session Director |
 | **Subscribers** | Consensus Engine, Frontend |
 | **Payload** | *(none beyond the universal fields)* |
-| **Description** | Fires once verification passes and the Consensus Engine begins aggregating the Shark Agents' individual positions. |
+| **Description** | Fires once Verification completes (or fails) and the Consensus Engine begins reconciling the Shark Agents' individual positions and the Verification findings. |
 
 ### `ConsensusReached`
 
 | | |
 |---|---|
-| **Publisher** | Consensus Engine |
-| **Subscribers** | Session Director, Frontend |
-| **Payload** | `outcome_summary: str` |
-| **Description** | Fires when the Consensus Engine has produced a single aggregated outcome from all Shark Agents' positions. Triggers the transition to Investment Decision. |
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend, Memory |
+| **Payload** | `outcome_summary: str` (a short factual one-liner — recommendation and confidence; never the full `ConsensusResult`) |
+| **Description** | Fires once `orchestrator.consensus_engine.ConsensusEngine.reconcile()` produces a real `ConsensusResult` (Release 0.7). Triggers the transition to Investment Decision. |
+
+### `ConsensusFailed`
+
+| | |
+|---|---|
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend, Memory |
+| **Payload** | `reason: str` (the failing exception's type name) |
+| **Description** | Added in Release 0.7. Fires instead of `ConsensusReached` when consensus could not be reached (unconfigured provider, request failure, unparseable response) — `ConsensusResult.recommendation="unavailable"` in this case, never silently treated as `"do_not_invest"` or `"insufficient_evidence"` (both genuine conclusions a *completed* Consensus run can reach). |
 
 ### `InvestmentDecisionMade`
 
@@ -161,8 +206,35 @@ still awaiting a decision.
 |---|---|
 | **Publisher** | Session Director |
 | **Subscribers** | Frontend, Memory |
-| **Payload** | `deal_status: str` (a `DealStatus` value, always `"pending"` as of Release 0.6), `amount`/`equity_pct` (unused — see `SharkOfferMade` below), `conditions: str` (explains the Release 0.7 boundary) |
-| **Description** | Fires exactly once per session, when the `INVESTMENT_DECISION` phase begins. As of Release 0.6, each Shark's own real, independent offer is announced individually (see `SharkOfferMade`) — this event's own payload remains a fixed placeholder, since real cross-Shark aggregation into one final combined decision is Release 0.7's Consensus Engine, not this. Triggers the transition to Negotiation (or Session Complete, if no Shark made an offer). |
+| **Payload** | `deal_status: str` (a `DealStatus` value, derived from `ConsensusResult.recommendation` as of Release 0.7 — see `orchestrator/orchestrator.py::_deal_status_from_recommendation()`), `amount`/`equity_pct` (unused — see `SharkOfferMade` below), `conditions: str` (the Consensus Engine's stated conditions, its decision rationale, or an honest note that consensus was unavailable) |
+| **Description** | Fires exactly once per session, when the `INVESTMENT_DECISION` phase begins. Each Shark's own real, independent offer is still announced individually (see `SharkOfferMade`) — this event's payload now reflects the real, formal committee recommendation (Release 0.7's Consensus Engine) rather than a fixed placeholder (Release 0.4-0.6.1). Triggers the transition to Negotiation (or Session Complete, if no Shark made an offer). |
+
+### `FounderReportStarted`
+
+| | |
+|---|---|
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend, Memory |
+| **Payload** | *(none beyond the universal `session_id`/`emitted_at`)* |
+| **Description** | Added in Release 0.9. Fires once, as the first step of `SharkTankOrchestrator._complete_session()` — after Negotiation concludes (or immediately, if no Shark made an offer) and before the session's closing message and `SESSION_COMPLETE`. Deliberately not tied to its own `SessionPhase`: report generation is a finalization step, not a stage the founder actively waits through turn-by-turn — see `docs/architecture.md` → *Founder Feedback Report* and `docs/state_machines.md` § Rule 6. |
+
+### `FounderReportCompleted`
+
+| | |
+|---|---|
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend, Memory |
+| **Payload** | `summary: str` (a short, factual one-line summary of the real `FounderFeedbackReport` — counts of strengths/needs-work/critical issues/action items — never the full structured report or any internal reasoning) |
+| **Description** | Added in Release 0.9. Fires once `agents.founder_feedback_agent.FounderFeedbackAgent.generate()` produces a real `FounderFeedbackReport` (`report_status="completed"`). The full report is available via `SharkTankOrchestrator.founder_report`, not this event's payload. |
+
+### `FounderReportFailed`
+
+| | |
+|---|---|
+| **Publisher** | Session Director |
+| **Subscribers** | Frontend, Memory |
+| **Payload** | `reason: str` (the failing exception's type name) |
+| **Description** | Added in Release 0.9. Fires instead of `FounderReportCompleted` when the report could not be generated (unconfigured provider, request failure, unparseable response) — the session still completes normally with `FounderFeedbackAgent.fallback_result()` (`report_status="unavailable"`), never a silently fabricated report and never confused with a genuine simulation outcome like a Shark rejection. |
 
 ### `PiiSanitized`
 

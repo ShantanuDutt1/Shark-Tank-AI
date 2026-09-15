@@ -18,9 +18,16 @@ from enum import Enum
 
 
 class SessionPhase(str, Enum):
-    """The eleven stages of a Shark Tank AI session, in chronological
+    """The twelve stages of a Shark Tank AI session, in chronological
     order. `MARKET_RESEARCH` and `NEGOTIATION` were added in Release
-    0.6 (`docs/state_machines.md`)."""
+    0.6; `ADVANCED_ANALYSIS` was added in Release 0.8 -- deterministic
+    financial analysis runs after Internal Deliberation (the Sharks'
+    final offers must exist first) and before Verification (so
+    Verification can audit it, per Release 0.8 spec Part 20 -- see
+    `docs/architecture.md` -> Advanced Financial Analysis for why this
+    ordering, not the spec's own suggested "after Verification"
+    placement, is what the actual data dependency requires)
+    (`docs/state_machines.md`)."""
 
     IDLE = "idle"
     PROPOSAL_UPLOADED = "proposal_uploaded"
@@ -28,6 +35,7 @@ class SessionPhase(str, Enum):
     MARKET_RESEARCH = "market_research"
     QUESTION_ROUND = "question_round"
     INTERNAL_DELIBERATION = "internal_deliberation"
+    ADVANCED_ANALYSIS = "advanced_analysis"
     VERIFICATION = "verification"
     CONSENSUS = "consensus"
     INVESTMENT_DECISION = "investment_decision"
@@ -43,6 +51,7 @@ PHASE_ORDER: list[SessionPhase] = [
     SessionPhase.MARKET_RESEARCH,
     SessionPhase.QUESTION_ROUND,
     SessionPhase.INTERNAL_DELIBERATION,
+    SessionPhase.ADVANCED_ANALYSIS,
     SessionPhase.VERIFICATION,
     SessionPhase.CONSENSUS,
     SessionPhase.INVESTMENT_DECISION,
@@ -58,6 +67,7 @@ PHASE_LABELS: dict[SessionPhase, str] = {
     SessionPhase.MARKET_RESEARCH: "Market Research",
     SessionPhase.QUESTION_ROUND: "Question Round",
     SessionPhase.INTERNAL_DELIBERATION: "Internal Deliberation",
+    SessionPhase.ADVANCED_ANALYSIS: "Financial Analysis",
     SessionPhase.VERIFICATION: "Verification",
     SessionPhase.CONSENSUS: "Consensus",
     SessionPhase.INVESTMENT_DECISION: "Investment Decision",
@@ -75,6 +85,7 @@ PHASE_STAGE_MESSAGES: dict[SessionPhase, str] = {
     SessionPhase.MARKET_RESEARCH: "Researching current market conditions and comparable businesses.",
     SessionPhase.QUESTION_ROUND: "The investment committee is questioning the founder.",
     SessionPhase.INTERNAL_DELIBERATION: "The committee is deliberating internally.",
+    SessionPhase.ADVANCED_ANALYSIS: "Analyzing financial data and valuation.",
     SessionPhase.VERIFICATION: "Verifying the committee's deliberation.",
     SessionPhase.CONSENSUS: "The committee is reaching consensus.",
     SessionPhase.INVESTMENT_DECISION: "Delivering initial offers.",

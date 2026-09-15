@@ -5,15 +5,26 @@ defines `BaseAgent`, and `agents/shark_agent.py`'s `SharkAgent` is a
 real implementation as of Release 0.5 (see *Error Handling* below for
 where its failure-handling deliberately reinterprets this document's
 original wording); `agents/market_research_agent.py`'s
-`MarketResearchAgent` (Release 0.6) follows the same real/fallback
+`MarketResearchAgent` (Release 0.6), `agents/verification_agent.py`'s
+`VerificationAgent` (Release 0.7), `agents/financial_analyst.py`'s
+`FinancialAnalyst` (Release 0.8), and `agents/founder_feedback_agent.py`'s
+`FounderFeedbackAgent` (Release 0.9) all follow the same real/fallback
 pattern without being a `BaseAgent` subclass either, for the same
-reason `ModeratorAgent` isn't — it doesn't evaluate a pitch and
-produce an `Offer`, it produces a `MarketRealityBrief`. Everything
-else in this document — Skills, Tool Access, Memory Access, and
-Message Publishing/Subscription — is still planned and must be added
-when a future release builds it out. This document is the contract
-every current and future agent (Shark Agents, Moderator, Market
-Research, Verification Agent) must satisfy.
+reason `ModeratorAgent` isn't — none of the five evaluates a pitch and
+produces an `Offer`; they produce a `MarketRealityBrief`,
+`VerificationResult`, `FinancialAnalysisResult`, `FounderFeedbackReport`,
+and (for `ModeratorAgent`) narration/validation respectively.
+`orchestrator/consensus_engine.py`'s `ConsensusEngine` (Release 0.7)
+is not an agent at all in this document's sense — it has no investment
+philosophy, never evaluates a pitch, and only reconciles
+already-produced structured output, so it deliberately lives in
+`orchestrator/`, not `agents/` (see `docs/architecture.md` -> Consensus
+Engine). Everything else in this document — Skills, Tool Access,
+Memory Access, and Message Publishing/Subscription — is still planned
+and must be added when a future release builds it out. This document
+is the contract every current and future agent (Shark Agents,
+Moderator, Market Research, Verification, Financial Analyst, Founder
+Feedback) must satisfy.
 
 ## Responsibilities
 
@@ -67,11 +78,15 @@ Every agent method that performs work must accept:
 
 Every agent method must return a typed domain object — never a raw
 string, dict, or provider response object. `SharkAgent.evaluate_pitch`
-returns an `Offer` (`models/schemas.py`). Any future agent
-(Verification, Consensus) must define or reuse an equally typed return
-value — plan for a `VerificationResult` and a `ConsensusResult` model
-when those agents are implemented, added to `models/schemas.py`
-alongside the existing domain models.
+returns an `Offer` (`models/schemas.py`). As of Release 0.7,
+`VerificationAgent.verify()` returns `models.schemas.VerificationResult`
+and `ConsensusEngine.reconcile()` returns `models.schemas.ConsensusResult`
+— both added to `models/schemas.py` alongside the existing domain
+models, following this same rule. As of Release 0.9,
+`FounderFeedbackAgent.generate()` returns
+`models.schemas.FounderFeedbackReport`, following the same rule —
+never an `Offer` or a recommendation of any kind, since it makes no
+investment decision.
 
 ## Error Handling
 
@@ -120,10 +135,12 @@ evaluation is never confused with `fallback_offer()`'s reserved
 `confidence=0.0`, which means "no real evaluation happened," not "very
 low confidence"). It is not calibrated or verified against anything —
 `docs/agent_personas.md` §11's specific confidence-threshold formulas
-remain unimplemented (see that document's §5.1). A Verification
-Agent's pass/fail and a Consensus Engine's aggregated outcome should
-carry the same kind of field when those agents are built; neither
-exists yet.
+remain unimplemented (see that document's §5.1). As of Release 0.7,
+`VerificationResult.overall_confidence` and `ConsensusResult.confidence`
+(`models/schemas.py`) carry the same kind of field, populated the same
+way -- the model's own self-reported number, with no calibration or
+verification against it either, consistent with `Offer.confidence`'s
+existing behavior.
 
 ## Skills
 

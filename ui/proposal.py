@@ -44,6 +44,7 @@ import streamlit as st
 
 from models.enums import PHASE_STAGE_MESSAGES, SessionPhase
 from utils.pdf_extraction import PdfExtractionError, extract_pdf_text
+from utils.report_rendering import render_founder_report_pdf
 
 PROPOSAL_TYPES: list[str] = ["Text", "PDF"]
 
@@ -59,6 +60,8 @@ def render_proposal_panel() -> None:
 
     _render_session_stage_card()
     _render_market_reality_summary()
+    _render_investment_committee_summary()
+    _render_founder_report_section()
 
 
 def _proposal_is_locked() -> bool:
@@ -132,6 +135,172 @@ def _render_market_reality_summary() -> None:
             st.markdown(f"**Founder ask vs. evidence:** {brief.valuation_comparison}")
         if brief.sources:
             st.caption(f"Based on {len(brief.sources)} retrieved source(s).")
+
+
+#: Founder-facing labels for `ConsensusResult.recommendation`
+#: (Release 0.7) -- kept in the UI layer since `models/schemas.py`
+#: owns data shapes only, not display strings
+#: (`docs/coding_standards.md` -> Modularity).
+_RECOMMENDATION_LABELS: dict[str, str] = {
+    "invest": "Invest",
+    "invest_with_conditions": "Invest with conditions",
+    "do_not_invest": "Do not invest",
+    "insufficient_evidence": "Insufficient evidence to decide",
+    "unavailable": "Unavailable (technical issue)",
+}
+
+#: Same bounded vocabulary as `models.schemas.QUALITY_RATINGS`
+#: (Release 0.8) -- capitalized for display only; the underlying value
+#: stored on `ConsensusResult` stays lowercase/machine-readable.
+_QUALITY_LABELS: dict[str, str] = {
+    "strong": "Strong",
+    "moderate": "Moderate",
+    "weak": "Weak",
+    "insufficient_evidence": "Insufficient evidence",
+}
+
+
+def _format_currency_range(low: float | None, high: float | None) -> str | None:
+    """Round a valuation figure to at most 2-3 significant digits
+    before display -- Release 0.8 spec Part 33 ("No Fake Precision"):
+    prefer "$2.5M-$3.5M" over "$3,184,721" unless the data genuinely
+    supports that precision, which this codebase's own valuation
+    estimates never claim to (every value here already carries its own
+    `confidence` label, never "exact"). Returns `None` if both bounds
+    are missing."""
+    if low is None and high is None:
+        return None
+
+    def _round(value: float) -> str:
+        if abs(value) >= 1_000_000:
+            return f"${value / 1_000_000:.1f}M"
+        if abs(value) >= 1_000:
+            return f"${value / 1_000:.0f}K"
+        return f"${value:,.0f}"
+
+    if low is not None and high is not None and low != high:
+        return f"{_round(low)}-{_round(high)}"
+    return _round(low if low is not None else high)  # type: ignore[arg-type]
+
+
+def _render_investment_committee_summary() -> None:
+    """A concise, optional Investment Committee summary (Verification +
+    Consensus + Advanced Financial Analysis, Release 0.7/0.8) -- same
+    pattern as `_render_market_reality_summary()`: collapsed by
+    default, only rendered once a real `ConsensusResult` exists,
+    plain-text via `st.markdown`'s default escaping. Never shows
+    chain-of-thought, raw verification/financial-analysis reasoning, or
+    internal agent prompts -- only the structured, already-concise
+    fields on `ConsensusResult` (Release 0.8 spec Part 32's example
+    layout: business/financial/deal quality, growth, risk, valuation,
+    strengths, risks, conditions).
+    """
+    director = st.session_state.get("_session_director")
+    consensus = getattr(director, "consensus_result", None) if director is not None else None
+    if consensus is None:
+        return
+
+    with st.expander("Investment Committee", expanded=False):
+        if consensus.recommendation == "unavailable":
+            st.caption(
+                consensus.evidence_limitations
+                or "The committee's formal consensus was not available."
+            )
+            return
+
+        label = _RECOMMENDATION_LABELS.get(consensus.recommendation, consensus.recommendation)
+        st.markdown(f"**Recommendation:** {label}  (confidence: {consensus.confidence:.2f})")
+
+        quality_rows = [
+            ("Business quality", consensus.business_quality),
+            ("Financial health", consensus.financial_health),
+            ("Deal quality", consensus.deal_quality),
+        ]
+        for row_label, value in quality_rows:
+            st.markdown(f"**{row_label}:** {_QUALITY_LABELS.get(value, value)}")
+
+        valuation_text = _format_currency_range(
+            consensus.recommended_valuation_range.low, consensus.recommended_valuation_range.high
+        )
+        if valuation_text:
+            st.markdown(
+                f"**Recommended valuation range:** {valuation_text} "
+                f"(confidence: {consensus.recommended_valuation_range.confidence})"
+            )
+
+        if consensus.growth_profile:
+            st.markdown(f"**Growth potential:** {consensus.growth_profile}")
+        if consensus.risk_profile:
+            st.markdown(f"**Risk:** {consensus.risk_profile}")
+        if consensus.scenario_summary:
+            st.markdown(f"**Scenarios:** {consensus.scenario_summary}")
+        if consensus.investment_thesis:
+            st.markdown(f"**Thesis:** {consensus.investment_thesis}")
+        if consensus.key_strengths:
+            st.markdown("**Key strengths:**")
+            for item in consensus.key_strengths:
+                st.markdown(f"- {item}")
+        if consensus.key_risks:
+            st.markdown("**Key risks:**")
+            for item in consensus.key_risks:
+                st.markdown(f"- {item}")
+        if consensus.conditions:
+            st.markdown("**Conditions:**")
+            for item in consensus.conditions:
+                st.markdown(f"- {item}")
+        if consensus.recommendation == "insufficient_evidence":
+            st.caption(
+                consensus.evidence_limitations
+                or "The evidence available did not support a confident recommendation."
+            )
+
+
+def _render_founder_report_section() -> None:
+    """The Founder Feedback Report download (Release 0.9) -- only
+    rendered once the session has actually finished
+    (`SessionPhase.SESSION_COMPLETE`) and a real
+    `FounderFeedbackReport` exists on the director. Rendering the PDF
+    here, on demand, rather than in `_complete_session()`, keeps report
+    *generation* (an LLM call, already done once by the orchestrator)
+    fully separate from report *rendering* (pure, cheap, and safe to
+    redo every rerun) -- `render_founder_report_pdf()` never calls a
+    provider and never touches disk (see `utils/report_rendering.py`).
+
+    Session isolation falls out of the existing architecture with no
+    extra code here: `ui/controls.py::_handle_start_session()` builds a
+    brand-new `SharkTankOrchestrator` per session, so `director
+    .founder_report` is always `None` until this session's own report
+    is generated -- there is no way for a prior session's report to
+    appear here (Release 0.9 spec Part 26).
+    """
+    director = st.session_state.get("_session_director")
+    if director is None or director.phase != SessionPhase.SESSION_COMPLETE:
+        return
+    report = getattr(director, "founder_report", None)
+    if report is None:
+        return
+
+    with st.expander("Founder Feedback Report", expanded=True):
+        if report.report_status == "unavailable":
+            st.caption(
+                report.limitations
+                or "The founder feedback report could not be generated due to a technical issue."
+            )
+            return
+
+        st.markdown(
+            "A two-page, evidence-grounded feedback report on this pitch is ready. "
+            "It reflects the full simulation, not just the Sharks' offers."
+        )
+        pdf_bytes = render_founder_report_pdf(report)
+        st.download_button(
+            label="Download Founder Feedback Report (PDF)",
+            data=pdf_bytes,
+            file_name="founder_feedback_report.pdf",
+            mime="application/pdf",
+            key="founder_report_download_button",
+        )
+        st.caption(report.disclaimer)
 
 
 def _render_proposal_input() -> None:

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(unset ANTHROPIC_API_KEY)",
+      "Bash(python -m pytest -q tests/test_session_director.py)",
+      "Bash(python -m pytest -q)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('ui/proposal.py'\\).read\\(\\)\\)\")",
+      "Bash(python -m pytest -q tests/test_verification_agent.py)",
+      "Bash(python -m pytest -q tests/test_consensus_engine.py)",
+      "Bash(python -m compileall -q .)",
+      "PowerShell(cd \"D:\\\\Shark-Tank-AI\"; $env:ANTHROPIC_API_KEY=$null; $job = Start-Job { cd \"D:\\\\Shark-Tank-AI\"; streamlit run app.py --server.headless true --server.port 8597 }; Start-Sleep -Seconds 6; try { $resp = Invoke-WebRequest -Uri \"http://localhost:8597\" -UseBasicParsing -TimeoutSec 5; Write-Output \"HTTP $\\($resp.StatusCode\\)\" } catch { Write-Output \"FAILED: $_\" }; Stop-Job $job; Receive-Job $job -Keep | Select-Object -Last 10; Remove-Job $job -Force)"
+    ]
+  }
+}
