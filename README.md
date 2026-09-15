@@ -1,349 +1,156 @@
 # Shark Tank AI
 
-A turn-based, multi-agent Streamlit application where a founder pitches
-a startup to an AI investment committee — a neutral Moderator plus
-three Shark investor personas (Conservative, Growth, Balanced) — gets
-questioned one Shark at a time, watches the committee deliberate
-privately, and receives a session outcome.
+Pitch a startup to an AI investment committee and get real, evidence-grounded feedback.
 
-> **Status: Release 0.9.5 — Full-System QA, Validation, Simulation
-> Conformance & Hardening**, a dedicated QA milestone on top of Release
-> 0.9's Agentic Founder Feedback Report, Release 0.8's Advanced
-> Investment Analysis + Decision Quality, Release 0.7's Verification
-> Agent + Formal Consensus Engine, Release 0.6.1's Hardening/Research
-> Integrity/Failure Semantics work, and Release 0.6's Market Reality,
-> Proposal Validation, Safety, Structured Extraction, and Negotiation.
-> The session flow is: Founder Proposal → Moderator Validation &
-> Extraction → Market Reality Research → Shark Analysis → Shark
-> Questions → Internal Deliberation → Advanced Financial Analysis →
-> Verification → Consensus → Investment Decision → Negotiation →
-> **Founder Feedback Report** → Final Outcome. Every stage from
-> validation onward uses real, provider-backed reasoning — not
-> deterministic templates — with a graceful, clearly-labeled fallback
-> at every step if the provider is unconfigured or fails, so the app
-> always keeps running; that fallback is never mistakable for a genuine
-> investment decision, including Advanced Analysis/Verification/
-> Consensus/the Founder Feedback Report itself (see *What Works Today*
-> below). Release 0.9.5 verified the whole system end-to-end through
-> the real UI with a permanent canonical reference proposal
-> (`tests/fixtures/proposals/0_9_5_reference_proposal.md`), fixed a
-> real defect where the three canonical final-outcome messages were
-> never implemented, and eliminated a long-standing source of
-> non-deterministic `tests/test_app_ui.py` failures. See *Current
-> Limitations* below and [docs/release_log.md](docs/release_log.md)
-> for exactly what shipped in each release.
+Shark Tank AI is a turn-based Streamlit app. You (**"Little Fish"**) submit a
+proposal; a neutral **Moderator** runs the session; three independent
+**Sharks** — Conservative, Growth, and Balanced, each with a different
+investment philosophy — question you one at a time, research your market,
+deliberate privately, make their own offers, and negotiate with you. At the
+end you get a two-page **Founder Feedback Report** you can download as a PDF.
 
-## What Works Today
+## How it works
 
-- **A real chat session**, grounded in external evidence. Enter a
-  proposal, click Start, and the Moderator validates and extracts
-  structured details from it, the committee researches the market
-  before questioning you, each Shark asks a question informed by that
-  research and its own persona, and your responses appear in the
-  transcript — rendered with Streamlit's native `st.chat_message` /
-  `st.chat_input`, not a static mockup.
-- **A full session lifecycle**, driven entirely by the backend, not
-  the UI: Idle → Proposal Upload → Validation → Market Research →
-  Question Round → Internal Deliberation → Advanced Financial Analysis →
-  Verification → Consensus → Investment Decision → Negotiation →
-  Session Complete (generating the Founder Feedback Report as its
-  final step), plus a clean reset back to Idle.
-- **Real Moderator validation & extraction.** An LLM call decides
-  whether a submission is a legitimate business proposal (missing
-  revenue/customers/financials is never itself a rejection reason) and
-  extracts founder name, company name, ask amount, equity, and implied
-  valuation where stated.
-- **Real, planned Market Reality Research.** A deterministic
-  research-planning step first classifies the pitch's business model
-  (SaaS, consumer, marketplace, restaurant, cleantech, professional
-  services, or a conservative generic plan when uncertain) into 3-8
-  targeted evidence categories, then gathers real web search results
-  per category (Anthropic's server-side search tool), and synthesizes
-  them into an uncertainty-aware brief — market size, competitors,
-  financial benchmarks, comparable transactions — that distinguishes
-  founder claims from externally-reported evidence, tags each source's
-  reliability and each claim's validation status, flags conflicting
-  evidence instead of silently picking one source, and never fabricates
-  a valuation range (or a founder-implied valuation, now computed
-  deterministically) when the evidence doesn't support one. A failed
-  research category doesn't discard the rest — partial evidence is
-  preserved and the gap disclosed.
-- **Real Shark investment intelligence.** Each of the three personas
-  (Conservative, Growth, Balanced) independently asks pitch-adaptive
-  questions, forms a real structured evaluation, deliberates
-  (disagreement included) in at most two sentences each, and makes its
-  own real offer or declines — per
-  [docs/agent_personas.md](docs/agent_personas.md). All three Sharks
-  always evaluate against the identical research evidence.
-- **Real Advanced Financial Analysis.** After the Sharks deliberate, a
-  Financial Analyst extracts financial facts (revenue, costs, cash,
-  customers, SaaS metrics where relevant) with explicit provenance —
-  distinguishing what the founder stated from what's derived, inferred,
-  estimated, or missing — and computes every calculation
-  deterministically in Python: implied valuation, revenue/ARR
-  multiples, margins, growth, burn, runway, dilution. It flags
-  inconsistencies (e.g. a stated margin that doesn't match revenue and
-  cost figures also given), builds downside/base/upside valuation
-  scenarios with an identified assumption source for each, and
-  identifies structured risk and upside factors — never inventing a
-  missing input or presenting a projection as a current fact.
-- **Real Verification and Consensus.** A Verification Agent audits
-  whether each Shark's final reasoning — and the financial analysis
-  itself — is actually supported by the proposal, founder answers, and
-  market research — distinguishing supported claims from unsupported
-  ones, contradictions, and arithmetic problems, without forcing the
-  Sharks to agree with each other. A Consensus Engine then reconciles
-  all three Sharks' positions, the financial analysis, and the
-  Verification findings into one formal committee recommendation
-  (`invest` / `invest with conditions` / `do not invest` /
-  `insufficient evidence`), explicitly distinguishing **business
-  quality** (how good the company is) from **deal quality** (how
-  attractive it is *at the proposed terms*) — an excellent business at
-  an excessive valuation can still be a poor deal. Explicitly not a
-  majority vote: a single Shark's well-supported concern can outweigh a
-  2-1 split. Neither component is a fourth Shark or makes its own
-  investment offer; each Shark's own real, independent offer (below) is
-  unaffected.
-- **Real Negotiation.** The founder gets one counter-offer turn with
-  each Shark who made an offer; that Shark independently accepts,
-  rejects, or modifies.
-- **A real Founder Feedback Report**, generated once at the end of
-  every session and offered as a two-page PDF download. Grounded in
-  real, cited research into how early-stage investors (YC, Techstars,
-  Sequoia, 500 Global, a16z, and others) actually evaluate startups
-  (see [docs/investor_evaluation_framework.md](docs/investor_evaluation_framework.md)),
-  it critically synthesizes the *entire* simulation — not just the
-  Sharks' offers — into strengths, areas that need work, and (reserved
-  for genuinely serious problems) critical issues; an investor-readiness
-  assessment across market, team, traction, unit economics, and more;
-  qualified (never falsely precise) valuation and financial feedback;
-  and a prioritized NOW/NEXT/LATER action plan, each item naming the
-  problem, why it matters, the action, and what evidence would resolve
-  it. It is not a fourth Shark and never issues or implies an
-  investment decision — every report carries a fixed disclaimer to that
-  effect, generated once per session and rendered entirely in memory
-  (no file is ever written to disk).
-- **A technical failure is never presented as a decision.** If a
-  Shark's evaluation or negotiation response fails for a provider
-  reason, the founder sees an honest "evaluation was unavailable" /
-  "could not process your counter-offer" message — never a fabricated
-  pass, decline, or walk-away.
-- **The session's real final outcome is always one of three exact,
-  fixed lines** (Release 0.9.5), chosen from what actually happened in
-  Negotiation — never a generic "thanks for pitching," and never
-  inferred from the committee's advisory Consensus recommendation
-  alone: *"Sorry Little Fish, the Sharks were not impressed"* (no
-  Shark interested), *"Sorry Little Fish, there was nothing for you
-  here today"* (at least one Shark was interested but no deal closed),
-  or *"Congratulations, Little Fish. You will now swim with the
-  Sharks!"* (a deal was accepted or modified into agreement).
-- **PII redaction and prompt-injection defense.** Emails, phone
-  numbers, and street addresses are redacted from the proposal before
-  anything else sees it, from the Moderator's own extracted fields
-  before they enter session state, and from every founder Question
-  Round answer and negotiation counter-offer before they're stored or
-  reach any Shark prompt; all founder-authored and web-retrieved
-  content is architecturally wrapped as untrusted data in every prompt
-  (see [docs/architecture.md](docs/architecture.md) → *Security*).
-- **Turn-gated founder input.** The chat input is only usable when it
-  is genuinely the founder's turn; it locks while the Moderator, a
-  Shark, or research is "speaking"/running.
-- **Text or PDF proposal input**, with real PDF text extraction
-  (Audio/Video were removed — they were never processed by anything
-  and only implied support that didn't exist).
+1. You paste or upload your pitch.
+2. The Moderator checks it's a real proposal and pulls out the key facts (ask amount, equity, valuation).
+3. The committee researches your market and competitors before questioning you.
+4. Each of the three Sharks asks a question based on your pitch and the research — you answer each in turn.
+5. The Sharks deliberate privately (you don't see this part).
+6. A Verification step checks whether each Shark's reasoning is actually supported by the evidence.
+7. A Consensus step reconciles all three positions into one formal committee view — never just a majority vote.
+8. A financial analysis computes valuation, margins, growth, and runway from your numbers, and flags anything inconsistent.
+9. Interested Sharks each make their own offer, one at a time.
+10. You get one negotiation round with each interested Shark.
+11. You get a clear final outcome — a deal, a pass, or no deal reached.
+12. A Founder Feedback Report is generated: what's strong, what needs work, and a prioritized action plan — grounded in how real early-stage investors (YC, Techstars, Sequoia, and others) evaluate startups.
 
-## What's a Placeholder Today
+Every stage degrades gracefully if the AI provider is unavailable — you'll see an honest "unavailable" message, never a fake decision.
 
-- **Financial analysis doesn't feed back into each Shark's own
-  reasoning.** Each Shark still forms its question, evaluation, and
-  deliberation using only the Market Reality Brief, exactly as before
-  Release 0.8 — the Financial Analyst's extracted facts and
-  calculations reach the founder-facing decision only through
-  Verification (which audits them) and Consensus (which reconciles
-  them), not through any individual Shark's own prompt.
-- **Scenario valuations are a single figure per scenario, not a true
-  range.** Downside/base/upside each compute one point estimate
-  (revenue × multiple); the UI rounds it for display to avoid false
-  precision, but a genuinely ranged per-scenario valuation is future
-  work.
-- **No sector-specific calculation frameworks.** The same general set
-  of financial calculations runs regardless of business model; a
-  business-model label steers what the extraction step prioritizes,
-  but there's no distinct SaaS-vs-restaurant-vs-marketplace
-  calculation path.
-- **No bounded retry when Verification flags a serious problem.** A
-  critical Verification finding does not currently send the committee
-  back for another deliberation round (`docs/state_machines.md` §
-  Rule 3's documented, still-unimplemented path) — it flows forward
-  into the Consensus Engine's reconciliation instead, where it can
-  still drive the recommendation toward `do_not_invest`/
-  `insufficient_evidence`.
-- **No distinct "unanimous rejection" outcome.** If all three Sharks
-  independently conclude a pitch is impossible or fraudulent, that
-  looks the same as an ordinary `do_not_invest` recommendation today —
-  `docs/agent_personas.md` §12.2's more severe, no-negotiation
-  short-circuit path remains unimplemented.
-- **No multi-round negotiation.** Exactly one counter-offer per
-  interested Shark; no counter-to-a-counter, and `SharkTankOrchestrator
-  .run_pitch()` (a full negotiation across an arbitrary agent list)
-  still raises `NotImplementedError`.
-- **No persistence.** Ending the Python process loses every session;
-  every `BaseMemory` method still raises `NotImplementedError`.
-- **Security is best-effort, not comprehensive.** PII redaction is
-  regex-based (three identifier types — Release 0.6.1 widened *where*
-  it's applied, not *what* it detects); prompt-injection defense is
-  architectural wrapping plus a secondary pattern filter, not a
-  guarantee an LLM never follows an embedded instruction. See
-  [docs/architecture.md](docs/architecture.md) → *Security* for
-  documented limitations.
-- **Research provenance is heuristic, not independently verified.**
-  Source reliability is a domain-hostname heuristic, and retrieved
-  URLs are exactly as self-reported by the model — this codebase never
-  independently re-fetches or verifies a source. Business-model
-  classification for research planning is a small keyword heuristic,
-  not a general industry taxonomy or an LLM classifier.
-- **The Founder Feedback Report is a single pass, not interactive.**
-  It is generated exactly once per session, from a single LLM call — a
-  founder cannot ask it follow-up questions, request revisions, or
-  regenerate it with different emphasis. It is also not persisted
-  anywhere: closing the browser tab or resetting the session discards
-  it, exactly like every other in-session artifact (see *No
-  persistence* above).
+## Do I need an API key?
 
-See [docs/release_backlog.md](docs/release_backlog.md) for the full
-roadmap.
+The app **runs without one** — every stage falls back to a simple deterministic placeholder, so you can try the full flow with no setup. For real AI-driven analysis (real questions, real research, real feedback), you need an [Anthropic API key](https://console.anthropic.com/). Usage is billed by Anthropic per their pricing; you're responsible for your own account. Shark Tank AI does not include a shared key.
 
-## Project Structure
+## Getting it
 
-```
-shark-tank-ai/
-├── agents/          # ModeratorAgent, SharkAgent, MarketResearchAgent, VerificationAgent, FinancialAnalyst, FounderFeedbackAgent, prompt_safety
-├── orchestrator/     # SharkTankOrchestrator (Session Director), EventBus, TurnController, NegotiationController, ConsensusEngine
-├── providers/        # BaseProvider + AnthropicProvider; BaseResearchProvider + AnthropicResearchProvider
-├── memory/           # Pluggable session/negotiation memory backends (placeholder)
-├── models/           # Shared pydantic data models (Pitch, Offer, MarketRealityBrief, ConversationMessage, ...)
-├── prompts/          # Prompt templates (plain text) + loader
-├── ui/               # Streamlit UI components (chat, proposal intake, controls, session state)
-├── config/           # Settings (pydantic-settings) + logging config
-├── utils/            # Small shared helpers (IDs, PII redaction, PDF extraction/rendering, formatting, deterministic financial calculations)
-├── tests/            # Unit tests + Streamlit AppTest integration tests
-├── docs/             # Architecture and process documentation
-├── docker/           # Dockerfile + .dockerignore
-├── app.py            # Streamlit entry point
-├── pyproject.toml
-├── requirements.txt
-├── docker-compose.yml
-├── .env.example
-└── .gitignore
-```
+Three ways to run it, depending on who you are:
 
-## Requirements
+| | Best for | You need |
+|---|---|---|
+| [**Windows app**](#windows-app-easiest) | Just want to use it | Nothing — no Python, no Git |
+| [**Docker**](#docker) | Reproducible, isolated | Docker Desktop |
+| [**Python**](#python-developers) | Developers / contributors | Python 3.11+ |
 
-- Python 3.12
+### Windows app (easiest)
 
-## Quick Start
+1. Go to the project's [GitHub Releases page](https://github.com/ShantanuDutt1/Shark-Tank-AI/releases) and download the latest `SharkTankAI-Windows.zip`.
+2. Right-click the ZIP → **Extract All** → choose a folder → open it.
+3. Double-click **`SharkTankAI.exe`**. Your browser opens to the app automatically.
+4. First time only: create a file named `.env` in the same folder as the `.exe`, containing:
+   ```
+   ANTHROPIC_API_KEY=your-key-here
+   ```
+   Without it, the app still runs — just without real AI reasoning.
+5. Use the app. When you're done, close the window (or press Ctrl+C in the console) to shut it down.
+6. Click **Reset** any time to start a new pitch with a clean slate.
+
+Your key stays in your local `.env` file — it's never sent anywhere except directly to Anthropic's API, never bundled into the app, and never logged.
+
+> Windows may show a SmartScreen warning because this executable isn't code-signed (code signing costs money most solo/open-source projects don't have). If you trust the source, click **More info → Run anyway**. See [Troubleshooting](#troubleshooting).
+
+### Docker
 
 ```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-streamlit run app.py
-```
-
-The app **starts successfully with no configuration at all** — no
-`.env` file and no API keys required. Without `ANTHROPIC_API_KEY` set,
-every stage (validation, research, questions, evaluation, deliberation,
-offers, negotiation) automatically falls back to a deterministic
-placeholder rather than failing, so the full session lifecycle still
-works end to end; set `ANTHROPIC_API_KEY` in `.env` for real,
-provider-backed reasoning throughout.
-
-## Running with Docker
-
-```bash
+git clone https://github.com/ShantanuDutt1/Shark-Tank-AI.git
+cd Shark-Tank-AI
+cp .env.example .env   # optional — add your ANTHROPIC_API_KEY here
 docker compose up --build
 ```
 
-Then open `http://localhost:8501`.
+Open `http://localhost:8501`. Stop with `Ctrl+C`, or `docker compose down` to remove the container.
 
-- The project directory is bind-mounted into the container, so code
-  changes on your host are picked up live (Streamlit's file watcher is
-  enabled) — no rebuild needed for most changes, only when
-  `requirements.txt` changes.
-- `.env` is loaded automatically if present, but it's optional — the
-  container starts successfully even without one. To use one:
-  `cp .env.example .env` before running `docker compose up`.
-- Stop the app with `Ctrl+C`, or `docker compose down` to also remove
-  the container.
+### Python (developers)
 
-## Running Tests
+Requires Python 3.11+.
 
 ```bash
-pytest
+git clone https://github.com/ShantanuDutt1/Shark-Tank-AI.git
+cd Shark-Tank-AI
+python -m venv .venv
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env           # optional — add your ANTHROPIC_API_KEY here
+streamlit run app.py
 ```
 
-The suite includes direct unit tests of the Session Director, Event
-Bus, Turn/Negotiation Controllers, providers, agents, PII redaction,
-prompt-injection helpers, and PDF extraction, plus full-application
-integration tests that drive `app.py` itself via Streamlit's `AppTest`
-harness (`tests/test_app_ui.py`) — none require a browser, live
-network access, or an API key. `tests/fakes.py` provides
-`FakeProvider` and `MockResearchProvider`, deterministic offline test
-doubles for both provider abstractions.
+## Privacy and data handling
 
-## Configuration
+- Your API key lives only in your own `.env` file / environment variable — it's read locally to call Anthropic's API and is never logged, displayed, or embedded in any distributed build.
+- Nothing is stored between sessions. There's no database and no persistent memory — closing the app or clicking Reset discards everything (proposal, research, Shark reasoning, report) permanently.
+- Emails, phone numbers, and street addresses in your proposal and answers are redacted before they reach any AI prompt (regex-based — not a comprehensive PII filter).
+- Market research sends parts of your proposal to Anthropic's web search tool to find comparable companies and market data; retrieved sources are treated as untrusted data, never as instructions.
 
-All settings are defined in `config/settings.py` and can be overridden
-via environment variables or a `.env` file — see `.env.example` for
-the full list (app name/env, server host/port, log level, LLM
-provider/model, API keys, memory backend, feature flags).
+## Resetting a session
 
-**Provider status:** Anthropic is the real, active provider (see
-`providers/anthropic_provider.py`); the sidebar's Gemini/Ollama options
-are explicitly labeled "not implemented yet" and do nothing. The same
-`ANTHROPIC_API_KEY` also powers Market Reality Research, via
-Anthropic's server-side web search tool (`providers
-/anthropic_research_provider.py`) — no separate search API key is
-needed or supported.
+Click **End Session**. This immediately discards the current proposal, conversation, research, Shark positions, and report — nothing carries over to your next pitch.
 
-Logging is configured once, centrally, in `config/logging_config.py`
-and initialized at startup by `app.py`. It writes structured logs to
-the console by default, with an optional rotating file handler
-(`LOG_TO_FILE=true`).
+## Troubleshooting
 
-## Documentation
+**App won't start.** Check the console/terminal for an error. For the Windows app, make sure you extracted the full ZIP first (don't run the `.exe` from inside the archive).
 
-See [docs/architecture.md](docs/architecture.md) for the system's
-architecture (kept current release-over-release; see its own status
-markers per section) and [docs/getting_started.md](docs/getting_started.md)
-for a setup walkthrough. Additional engineering documentation:
+**Windows blocks the executable.** SmartScreen flags unsigned apps by default. Click **More info → Run anyway** if you trust the source (this project isn't code-signed — see [Windows app](#windows-app-easiest)). Don't disable your antivirus; just approve this one file.
 
-- [docs/folder_structure.md](docs/folder_structure.md) — purpose,
-  responsibility, and ownership of every project folder.
-- [docs/state_machines.md](docs/state_machines.md) — the User Session
-  and Agent Orchestration state machines.
-- [docs/event_catalog.md](docs/event_catalog.md) — every Event Bus
-  message, implemented and planned.
-- [docs/agent_contract.md](docs/agent_contract.md) — the common
-  interface every agent must implement.
-- [docs/agent_personas.md](docs/agent_personas.md) — the three Shark
-  personas' priorities and behavior.
-- [docs/coding_standards.md](docs/coding_standards.md) — engineering
-  standards for this codebase.
-- [docs/release_log.md](docs/release_log.md) — what actually shipped
-  in each release, historically.
-- [docs/release_backlog.md](docs/release_backlog.md) — planned,
-  not-yet-built work by release.
-- [docs/investor_evaluation_framework.md](docs/investor_evaluation_framework.md)
-  — real, cited research into how early-stage investors evaluate
-  startups, underlying the Founder Feedback Report's prompt.
+**"API key problem" / analysis looks generic.** You're missing or have an invalid `ANTHROPIC_API_KEY`. Check your `.env` file has the right key with no extra quotes or spaces.
 
-## Roadmap
+**Port already in use.** The Windows app automatically tries the next port if 8501 is busy — check the console output for the actual URL. For Docker/Python, stop whatever else is using port 8501, or edit `SERVER_PORT` in `.env`.
 
-See [docs/release_backlog.md](docs/release_backlog.md) for the full,
-maintained roadmap. Immediately next (Release 0.9.5+):
+**Browser doesn't open automatically.** Open `http://localhost:8501` (or whatever port the console shows) manually.
 
-- [ ] Implement the `Verification → Internal Deliberation` bounded retry path for a critical Verification finding (`docs/state_machines.md` § Rule 3)
-- [ ] Implement full multi-round negotiation (`SharkTankOrchestrator.run_pitch()`)
-- [ ] Reconcile `docs/agent_personas.md` §12.2's Unanimous Rejection path with the Consensus Engine's normal `do_not_invest` outcome
+**Report won't generate / research fails.** Usually a transient API issue — the app still completes the session with an honest "unavailable" message rather than crashing. Try a new session.
+
+**App seems frozen.** Real AI calls take a few seconds each; the UI shows a spinner during them. If nothing changes for over a minute, check the console for errors.
+
+Still stuck? [Open an issue](https://github.com/ShantanuDutt1/Shark-Tank-AI/issues).
+
+## Limitations
+
+- Analysis quality depends on available web evidence — private companies and niche markets may have thin research.
+- Valuation feedback is an evidence-grounded range, not an objective "correct" valuation.
+- AI analysis can be wrong; this is a practice tool, not investment advice.
+- One negotiation round per interested Shark — no counter-to-a-counter.
+- No persistence across sessions or app restarts.
+- The Windows build is unsigned.
+- PII redaction and prompt-injection defenses are best-effort, not a guarantee.
+
+Full technical details and the maintained roadmap: [docs/architecture.md](docs/architecture.md), [docs/release_backlog.md](docs/release_backlog.md).
+
+## Project structure
+
+```
+agents/         AI agents (Moderator, Sharks, Research, Verification, Financial Analyst, Founder Feedback)
+orchestrator/   Session Director, Event Bus, turn/negotiation control, Consensus Engine
+providers/      LLM + research provider abstractions (Anthropic)
+models/         Shared data models
+prompts/        Prompt templates
+ui/             Streamlit interface
+config/         Settings and logging
+utils/          PII redaction, PDF extraction/rendering, financial calculations
+packaging/      Standalone Windows build (launcher, build script)
+tests/          Unit and end-to-end tests
+docs/           Architecture, state machines, event catalog, and release history
+```
+
+## For developers
+
+```bash
+python -m compileall -q .
+ruff check .
+pytest -q
+```
+
+The test suite includes unit tests for every agent and component, plus `tests/test_release_0_9_5_e2e.py` — a full end-to-end simulation driven through the real UI with a realistic reference proposal (`tests/fixtures/proposals/`). None of it requires a live API key or network access.
+
+See [docs/architecture.md](docs/architecture.md) for system design, [docs/folder_structure.md](docs/folder_structure.md) for what owns what, [docs/agent_personas.md](docs/agent_personas.md) for the Shark personas, and [docs/release_log.md](docs/release_log.md) for what shipped in each release. Building the standalone Windows package: see [packaging/README.md](packaging/README.md).
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).

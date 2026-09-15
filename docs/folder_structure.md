@@ -99,6 +99,24 @@ does not subclass `BaseAgent`, same reason), `prompt_formatting.py`
   project root (not inside this folder), because it must match the
   build context, which is the project root.
 
+## `packaging/`
+
+**Contents (Release 1.0):** `windows_launcher.py` (the standalone
+Windows entry point -- picks a free local port, launches Streamlit's
+own CLI programmatically, opens the user's browser once the server is
+ready), `build_windows.py` (reproducible PyInstaller build script),
+`README.md` (build/packaging documentation).
+
+- **Purpose:** The Windows standalone-application packaging layer.
+- **Responsibility:** Must stay a *thin* wrapper around the existing
+  application -- it contains no agent, orchestration, or UI logic of
+  its own, only what's needed to make `app.py` launchable as a
+  double-clickable `.exe` (working-directory/path handling, port
+  selection, browser launch). Never embeds or generates an API key.
+- **Ownership:** Whoever maintains the Windows release artifact.
+- **Future expansion:** macOS/Linux standalone builds, if ever
+  prioritized, would follow the same thin-wrapper pattern.
+
 ## `docs/`
 
 **Contents:** `architecture.md`, `folder_structure.md`,

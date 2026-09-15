@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from models.enums import PHASE_LABELS, PHASE_ORDER, SessionPhase
+from models.enums import PHASE_LABELS, PHASE_ORDER
 
 
 def render_header() -> None:

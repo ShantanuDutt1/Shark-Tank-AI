@@ -1865,11 +1865,161 @@ documented deferral -- see *Known limitations*).
 
 ---
 
+## Release 1.0 — Production Release, Standalone Windows Application, GitHub Packaging & Release Certification
+
+**Theme:** Not another feature release -- take the existing,
+feature-complete 0.9.5 baseline and make it reliable, secure,
+reproducible, understandable, and genuinely installable by someone who
+has never seen the project before, through three legitimate
+distribution paths (a standalone Windows application, Docker, and
+native Python), with public-facing documentation and a real license.
+No agent, orchestration, research, verification, consensus,
+negotiation, or report-generation logic changed -- packaging and
+documentation only, plus one narrow, explicitly-authorized wording
+resolution (question-round phrasing) and a small number of accuracy
+fixes to configuration/dependency metadata found stale during this
+milestone's own repository audit.
+
+**Shipped:**
+
+- **Standalone Windows application** (`packaging/windows_launcher.py`,
+  `packaging/build_windows.py`, PyInstaller 6.x): a thin launcher --
+  no agent/orchestration/UI logic of its own -- that anchors the
+  working directory to the executable's own folder, finds a free
+  local port, invokes Streamlit's real CLI (`streamlit.web.cli.main()`)
+  against the actual, unmodified `app.py`, and opens the user's
+  browser once the server responds. Never embeds, generates, or logs
+  an API key -- the user's own `.env` (read via the existing,
+  unmodified `config.settings.Settings`) sits next to the `.exe`.
+  Deliberately avoids `--collect-all streamlit` (which pulls in every
+  optional integration Streamlit merely supports -- matplotlib,
+  tkinter, scipy, sqlalchemy, win32com -- regardless of whether this
+  app uses it, producing an extremely slow, bloated build) in favor of
+  targeted `--copy-metadata`/`--collect-data` plus normal import-graph
+  analysis; a real, on-disk copy of `app.py` is bundled as a data file
+  (`--add-data`) since Streamlit's CLI execs the actual source file
+  rather than an importable frozen module, and `windows_launcher.py`
+  forces PyInstaller to discover the whole first-party dependency
+  graph via the exact same import `app.py` itself uses
+  (`from ui.layout import render_app`). See `packaging/README.md` for
+  full build mechanics and rationale.
+- **Question-round wording resolved** (spec Part 3.2): each Shark asks
+  at least one meaningful, concern-focused question, which may cover
+  multiple closely related aspects in a single turn when genuinely
+  warranted -- `prompts/adaptive_question.txt` updated from "Ask ONE
+  concise... question" to this canonical phrasing. The underlying
+  turn structure (one Shark speaking turn per round, per the existing
+  `TurnController`) is unchanged; this was a prompt-wording
+  clarification, not an architecture change. Closes the
+  Architectural/User-Decision-Required item Release 0.9.5 raised.
+- **Apache License 2.0** added (`LICENSE`, `NOTICE`) -- the repository
+  previously had no LICENSE file at all, despite `pyproject.toml`
+  claiming `MIT`; both now say `Apache-2.0` consistently. License
+  choice was an explicit user decision, not invented.
+- **README rewritten** for a public GitHub audience: concise,
+  beginner-friendly, three clearly separated installation paths
+  (Windows app / Docker / Python), privacy and data-handling section,
+  troubleshooting, and limitations -- replacing the prior
+  release-by-release "as of Release X.Y" narrative style (that history
+  now lives solely in this file, where it belongs).
+- **Configuration accuracy fixes**, found via this milestone's own
+  audit rather than assumed correct: `pyproject.toml`'s
+  `requires-python` corrected from `>=3.12` (never actually verified
+  against this project's real, working environment) to `>=3.11`
+  (confirmed by the full test suite passing under the actual installed
+  Python 3.11.9, and no 3.12-only syntax found anywhere in the
+  codebase); `ruff`/`black`/`mypy` target-version matched to `py311`;
+  version bumped from the placeholder `0.1.0` to `1.0.0`;
+  `.env.example` corrected to stop implying `OPENAI_API_KEY`,
+  `DATABASE_URL`, `MEMORY_BACKEND`, and `ENABLE_MULTI_AGENT_DEBATE` do
+  anything (confirmed via a full-repo grep: none of these are read
+  anywhere outside `config/settings.py` itself) -- commented out as
+  "reserved for future releases" rather than silently removed from
+  `Settings` (removing fields would be an unrelated architecture
+  change this milestone's own scope explicitly excludes).
+- **One pre-existing lint nit fixed**: an unused `SessionPhase` import
+  in `ui/header.py`, the only `ruff` finding anywhere in the repository
+  at the start of this milestone.
+- **`.gitignore` hardened**: added `.claude/` (local tooling config
+  that had been appearing as untracked since it was never ignored) and
+  the Windows build's own output/work directories
+  (`dist_windows/`, `build_windows_work/`, `packaging/*.spec`).
+- **Security audit performed**: full working-tree and complete git
+  history (`git log --all -p`) scanned for API-key patterns,
+  credentials, and private-key markers -- clean. No `.env` file has
+  ever existed in the repository or its history. The ambient
+  `ANTHROPIC_API_KEY` that leaks into this development environment's
+  shell (documented in every release since 0.6.1) was independently
+  confirmed to never appear anywhere in the repository or its history
+  either.
+
+**Explicitly out of scope (per spec Part 2; unchanged from every prior
+release):** additional Sharks, ADK, MCP, Agent Skills, SQLite,
+persistent memory, blockchain, multi-session learning, multi-round
+negotiation, new external integrations, new scoring systems, unrelated
+UI redesigns. No change to the Moderator, the three Shark personas,
+Market Reality Research, Verification, Consensus, Advanced Analysis,
+offers, negotiation, the final-outcome messages (Release 0.9.5), or
+the Founder Feedback Report.
+
+**Known limitations:**
+
+- **Docker build/run could not be live-tested in this environment.**
+  The `docker` CLI is installed, but `docker info`/`docker build` both
+  fail with "Docker Desktop is unable to start" -- the daemon/backend
+  itself is unavailable in this sandboxed environment, confirmed via
+  `docker info`, `docker buildx ls`, and `docker ps` all failing the
+  same way. `docker/Dockerfile`, `docker-compose.yml`, and
+  `.dockerignore` were audited by direct inspection (dependency layer
+  caching, healthcheck, port exposure, bind-mount behavior) and found
+  unchanged and consistent with `requirements.txt`, but this is static
+  review, not a live build/run -- reported honestly as **BLOCKED**,
+  not claimed as tested.
+- **No live Anthropic provider run was possible**, for the same
+  documented, unavoidable reason as every release since 0.6.1: the
+  only `ANTHROPIC_API_KEY` present in this environment leaks from the
+  Claude Code process context (not this project's own credential) and
+  is not authorized for this project's own use. Reported as
+  **BLOCKED**, not conflated with the offline `FakeProvider`-based
+  verification this and every prior release relies on.
+- **The standalone Windows package is large** (~355 MB) because
+  Streamlit itself has a hard dependency on pandas/pyarrow/numpy/PIL
+  at import time (used for `st.dataframe`/`st.pyplot`/etc., none of
+  which this application currently uses) -- unavoidable when bundling
+  any application that imports the full `streamlit` package, confirmed
+  by two independent build attempts pulling in the same core set
+  regardless of `--collect-all` vs. targeted `--copy-metadata`/
+  `--collect-data` bundling strategy. Documented in
+  `packaging/README.md` rather than presented as solved.
+- **The standalone executable is unsigned.** Code signing requires a
+  paid certificate not available for this project; Windows SmartScreen
+  will warn on first run. Documented in the README's Troubleshooting
+  section rather than instructing users to bypass security warnings
+  blindly.
+- **PyInstaller builds are slow in this specific sandboxed environment**
+  (multiple minutes, with long silent stretches during binary
+  classification and DLL dependency scanning that looked like a hang
+  until confirmed otherwise via process-memory growth) -- likely
+  antivirus/sandbox file-I/O interference given the sheer file count
+  involved (~5,000+ entries classified). Not expected to reproduce this
+  severely on an ordinary developer machine, but noted honestly since
+  it was directly observed, including one earlier build attempt
+  (using the more aggressive `--collect-all streamlit`) that was killed
+  after genuinely stalling rather than merely being slow.
+- **Windows-only standalone build.** macOS/Linux standalone packaging
+  was not attempted -- Docker and native Python remain the
+  cross-platform paths.
+
+**Deviations from this specification:** none identified -- the
+question-round wording ambiguity Release 0.9.5 flagged as
+Architectural/User-Decision-Required was resolved by this
+specification's own explicit Part 3.2, not decided unilaterally.
+
+---
+
 ## Future Releases
 
 Placeholders for releases not yet started. Each will be filled in with
 the same structure as above (Theme, Shipped, Explicitly out of scope)
 once it actually ships — this log does not get filled in ahead of
-time.
-
-### Release 1.0 — *(not yet started)*
+time. Post-1.0 work continues in [`docs/release_backlog.md`](release_backlog.md).

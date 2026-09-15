@@ -1253,6 +1253,26 @@ default, with detail available only on request. See
 [`coding_standards.md`](coding_standards.md) → *Session State* for how
 this should be implemented.
 
+## Standalone Windows Packaging
+
+**Status: Implemented as of Release 1.0.**
+
+`packaging/windows_launcher.py` + `packaging/build_windows.py` (PyInstaller)
+produce a standalone `SharkTankAI.exe` for users who don't want to install
+Python. This is deliberately a **thin packaging layer, not a second
+application**: the launcher contains no agent, orchestration, or UI logic --
+it only picks a working directory (so `.env`/`logs/` resolve predictably),
+finds a free local port, invokes Streamlit's own CLI (`streamlit.web.cli
+.main()`) programmatically against the real, unmodified `app.py`, and opens
+the user's browser once the server responds. Every architectural property
+described in this document (Session Director, Event Bus, three independent
+Sharks, session isolation via a fresh `SharkTankOrchestrator` per session,
+...) is exactly as real inside the packaged build as in `streamlit run
+app.py` -- packaging changes nothing about *how* the application runs, only
+*how a user starts it*. See `packaging/README.md` for build mechanics,
+resource-bundling details, and why `--collect-all streamlit` was rejected in
+favor of a targeted `--copy-metadata`/`--collect-data` approach.
+
 ## Future Extension Points
 
 This section exists so future releases have an explicit, agreed-upon

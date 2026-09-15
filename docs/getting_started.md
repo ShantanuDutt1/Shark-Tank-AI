@@ -2,13 +2,13 @@
 
 ## Prerequisites
 
-- Python 3.12
+- Python 3.11+
 - (Optional) Docker + Docker Compose
 
 ## Local Setup
 
 ```bash
-python3.12 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
